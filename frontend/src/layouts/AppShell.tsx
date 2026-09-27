@@ -9,7 +9,7 @@ import { Fragment, useState, type ReactNode } from 'react';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { settingsApi } from '../api/endpoints';
 import { useAuth } from '../auth/useAuth';
-import { visibleNav, type NavItem } from '../navigation';
+import { DELIVERED_PHASE, visibleNav, type NavItem } from '../navigation';
 import { humanize } from '../utils/format';
 
 const DRAWER_WIDTH = 264;
@@ -51,7 +51,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <ListItemButton key={i.path} component={RouterLink} to={i.path} selected={isActive(i)} onClick={() => setOpen(false)} sx={{ mx: 1, borderRadius: 2 }}>
                 <ListItemIcon sx={{ minWidth: 40 }}>{i.icon}</ListItemIcon>
                 <ListItemText primary={i.label} />
-                {i.phase > 1 && <Chip size="small" label={`P${i.phase}`} variant="outlined" sx={{ height: 20, fontSize: 11 }} />}
+                {i.phase > DELIVERED_PHASE && <Chip size="small" label={`P${i.phase}`} variant="outlined" sx={{ height: 20, fontSize: 11 }} />}
               </ListItemButton>
             ))}
           </Fragment>

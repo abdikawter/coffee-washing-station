@@ -143,12 +143,12 @@ src/
 | 4 | `settings` | system_settings | 1 ✅ |
 | 5 | `audit-log` | audit_logs | 1 ✅ |
 | 6 | `files` | documents | 1 ✅ |
-| 7 | `suppliers` | suppliers, supplier_documents | 2 |
-| 8 | `quality` | quality_inspections, quality_settings, quality_holds, coffee_grades, coffee_types | 2 |
-| 9 | `equipment` (incl. `scales`) | equipment, scales, scale_calibrations, machine_maintenance, maintenance_schedules | 2 |
-| 10 | `purchasing` | purchase_vouchers, purchase_items, weight_records | 2 |
-| 11 | `payments` | supplier_payments | 2 |
-| 12 | `finance` (ledger part) | cash_transactions | 2 (ledger) / 7 |
+| 7 | `suppliers` | suppliers, supplier_documents | 2 ✅ |
+| 8 | `quality` | quality_inspections, quality_settings, quality_holds, coffee_grades, coffee_types | 2 ✅ |
+| 9 | `equipment` (incl. `scales`) | equipment, scales, scale_calibrations, machine_maintenance, maintenance_schedules | 2 ✅ |
+| 10 | `purchasing` | purchase_vouchers, purchase_items, weight_records | 2 ✅ |
+| 11 | `payments` | supplier_payments | 2 ✅ |
+| 12 | `finance` (ledger part) | cash_transactions | 2 ✅ (ledger) / 7 |
 | 13 | `lots` | lots, lot_events | 3 |
 | 14 | `hopper` | hoppers, hopper_records, hopper_reconciliations | 3 |
 | 15 | `pulping` | pulping_machines, pulping_machine_inspections, pulping_records | 3 |
@@ -337,11 +337,12 @@ Main endpoints (abridged; full Swagger generated per phase):
 | audit log ✅ | `GET /audit-logs` (filters), `GET /audit-logs/verify` |
 | files ✅ | `POST /files` (multipart), `GET /files/:id`, `GET /files/:id/content` |
 | health ✅ | `GET /health/live`, `GET /health/ready` |
-| suppliers | CRUD, `PATCH /suppliers/:id/status`, `POST /suppliers/:id/documents`, `GET /suppliers/:id/history` (purchases, payments, inspections) |
-| quality | `POST /quality/inspections`, `GET /quality/inspections`, `POST /quality/holds`, `POST /quality/holds/:id/release`, `/quality/rules` CRUD, `/quality/grades` |
-| scales | CRUD, `POST /scales/:id/calibrations`, `GET /scales/:id/calibrations`, `GET /scales/status` |
-| purchases | `POST /purchases` (draft incl. items + weight records), `PUT /purchases/:id`, `POST /purchases/:id/{submit,verify,approve,cancel,void}`, `GET /purchases/:id/pdf` |
-| payments | `POST /payments`, `POST /payments/:id/{approve,reject,disburse,reverse}`, `GET /payments` |
+| suppliers ✅ | `GET/POST /suppliers`, `GET/PATCH /suppliers/:id`, `PATCH /suppliers/:id/status`, `POST /suppliers/:id/documents`, `GET /suppliers/:id/documents`, `GET /suppliers/:id/history` (purchases, payments, inspections) |
+| quality ✅ | `GET/POST /quality/inspections`, `GET /quality/inspections/:id` (`?available=true` = accepted and unused), `GET/POST /quality/holds`, `POST /quality/holds/:id/release`, `GET/POST /quality/rules`, `PATCH /quality/rules/:id`, `GET/POST /quality/grades`, `PATCH /quality/grades/:id`, `GET/POST /coffee-types`, `PATCH /coffee-types/:id` |
+| equipment ✅ | `GET/POST /equipment`, `GET/PATCH /equipment/:id` (status change needs a reason), `GET/POST /equipment/:id/maintenance`, `GET/POST /equipment/:id/schedules`, `PATCH /maintenance-schedules/:id` |
+| scales ✅ | `GET/POST /scales` (list = status board with current verification), `GET/PATCH /scales/:id`, `GET/POST /scales/:id/calibrations` |
+| purchases ✅ | `GET /purchases`, `GET /purchases/summary` (dashboard), `POST /purchases` (draft incl. items + weight records, idempotent), `GET/PUT /purchases/:id`, `POST /purchases/:id/{submit,verify,return,approve,cancel,void}`, `GET /purchases/:id/pdf` |
+| payments ✅ | `GET/POST /payments`, `GET /payments/:id`, `POST /payments/:id/{approve,reject,disburse,reverse}` (all idempotent) |
 | lots | `GET /lots`, `GET /lots/:id`, `GET /lots/:id/events`, `GET /lots/:id/trace?direction=both`, `GET /lots/:id/outturn` |
 | hopper | `POST /hopper/intakes`, `POST /hopper/intakes/:id/flotation`, `POST /hopper/reconciliations/run?date=`, `POST /hopper/reconciliations/:id/review` |
 | pulping | `POST /pulping/machines/:id/inspections`, `POST /pulping/records`, `POST /pulping/records/:id/complete` |
@@ -356,7 +357,7 @@ Main endpoints (abridged; full Swagger generated per phase):
 | attendance | `POST /attendance` (bulk by group/day), `POST /attendance/approve` (bulk), `POST /attendance/:id/confirmation` |
 | payroll | `POST /payroll` (generate from approved attendance), `POST /payroll/:id/{submit,approve-supervisor,approve-cashier,pay,cancel}`, `POST /payroll/items/:id/confirmation`, `GET /payroll/:id/pdf` |
 | rations | ration items, `POST /rations/sivs` (+submit/approve/issue/cancel) |
-| finance | expenses (+approve/pay), `POST /finance/cash` (funding/return), `GET /finance/summary?period=` |
+| finance | ✅ Phase 2: `GET/POST /finance/cash` (funding/return), `GET /finance/cash/summary` · Phase 7: expenses (+approve/pay), `GET /finance/summary?period=` |
 | audits | CRUD, `POST /audits/:id/{start,complete,close}`, `POST /audits/:id/items`, `POST /audits/unannounced/generate` |
 | corrective-actions | CRUD, `POST /corrective-actions/:id/{start,resolve,verify,close}`, evidence upload |
 | notifications | `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all`, `GET /notifications/stream` (SSE) |
@@ -398,8 +399,8 @@ Main endpoints (abridged; full Swagger generated per phase):
 PurchaseVoucher: DRAFT → PENDING_VERIFICATION → VERIFIED → APPROVED → PAID
                  DRAFT|PENDING_VERIFICATION|VERIFIED → CANCELLED        (reason)
                  PENDING_VERIFICATION|VERIFIED → DRAFT                   (returned for correction, reason)
-                 APPROVED → VOIDED                                       (Site Manager, reason; lot still PURCHASED)
-                 PAID → VOIDED only after payment REVERSED and lot not beyond PURCHASED
+                 APPROVED → VOIDED                                       (Site Manager, reason; no live payment; lot still PURCHASED → lot CLOSED)
+                 PAID → APPROVED                                         (its payment was REVERSED; the voucher can then be paid again or voided)
 SupplierPayment: PENDING_APPROVAL → APPROVED → PAID ;  PENDING_APPROVAL → REJECTED ; PAID → REVERSED (reversal cash txn)
                  (if payment.requiresApproval = false: created directly as APPROVED)
 Lot stage:       PURCHASED → HOPPER → FLOTATION → PULPING → FERMENTATION → WASHING → GRADING
@@ -499,7 +500,7 @@ Scheduled jobs (pg-boss schedule(), cron in the station timezone; minimum granul
 
 Notification types = `notification_type` enum (all ten in the brief + raking overdue, payroll approval, maintenance due, quality hold). Recipients resolved by permission (e.g. `SRV_AWAITING_APPROVAL` → users with `srv:approve`). `dedupe_key` (e.g. `ferm-overdue:<batchId>`) with the unique `(user_id, dedupe_key)` prevents alert storms. Failed jobs retry with exponential backoff (pg-boss `retryLimit`/`retryBackoff`) and then land in a dead-letter queue visible to SUPER_ADMIN. Realtime push uses PostgreSQL `LISTEN/NOTIFY` so it works across the web and worker processes without Redis.
 
-Phase 1 delivers the relay, the `domain-events` consumer (logs events) and the housekeeping schedule; the notification rules, channels and SSE endpoint arrive in Phase 7.
+Phase 1 delivers the relay, the `domain-events` consumer (logs events) and the housekeeping schedule; Phase 2 adds `calibration-due` (hourly, logs scales needing verification); the notification rules, channels and SSE endpoint arrive in Phase 7.
 
 ## 13. Reporting architecture
 
@@ -574,7 +575,7 @@ GitHub Actions on every push/PR: install → typecheck → lint → unit + integ
 | Phase | Deliverables | Exit criteria |
 |---|---|---|
 | 1 Foundation ✅ | Repo, config validation, SQL migrations (full schema + constraints), migration runner, seed (roles, permissions, settings, admin), auth (login/refresh/logout/lockout/forced change), users/roles/employees, permission route registry, audit log (+ verify), settings (+ confirm), files, outbox + pg-boss worker skeleton, idempotency, sequences, health, error envelope, Swagger, logging; frontend shell (login, change password, layout, nav by permission, dashboard shell, users, roles, settings, audit log pages); Render Blueprint, CI | Checklist in §15 green; authorization matrix test for Phase 1 routes |
-| 2 Procurement | Suppliers (+docs), quality inspections/rules/holds, equipment & scales & daily verification, purchase vouchers (full state machine, PDF), payments, cash ledger, lot creation hook | Purchase → Payment → Lot integration tests; SoD tests |
+| 2 Procurement ✅ | Suppliers (+docs), quality inspections/rules/holds, equipment & scales & daily verification, purchase vouchers (full state machine, PDF), payments, cash ledger, lot creation hook | Purchase → Payment → Lot integration tests; SoD tests |
 | 3 Production | Lots & events, hopper + flotation + reconciliation, pulping + machine checks + maintenance, fermentation (+ monitor jobs), washing, grading (child lots) | Lot → … → Grading integration tests |
 | 4 Drying | Beds (QR), batches, bed assignment, raking + monitor, moisture, defects, final verification; mobile screens | Drying rules & alerts tested |
 | 5 Warehouse | Warehouses/sections/stacks, SRV (+PDF, approval), inventory ledger, bin cards (+PDF), transfers, adjustments, reversals, traceability API + lot passport UI, QR resolver | Drying → Warehouse → Inventory tests; ledger concurrency tests |

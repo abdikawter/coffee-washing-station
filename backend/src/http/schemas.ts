@@ -64,3 +64,17 @@ export const boolQuery = z.enum(['true', 'false']).transform((v) => v === 'true'
 
 export const isoDateTime = z.iso.datetime({ offset: true });
 export const businessDateString = z.iso.date();
+
+/** Decimal strings (ARCHITECTURE.md §2.4): decimals travel as strings, never floats. */
+export const kgString = z.string().regex(/^\d{1,9}(\.\d{1,3})?$/, 'weight in kg with up to 3 decimals, e.g. "125.500"').meta({ example: '125.500' });
+export const moneyString = z.string().regex(/^\d{1,12}(\.\d{1,2})?$/, 'amount with up to 2 decimals, e.g. "45.00"').meta({ example: '45.00' });
+export const pctString = z
+  .string()
+  .regex(/^\d{1,3}(\.\d{1,2})?$/, 'percentage with up to 2 decimals')
+  .refine((v) => Number(v) <= 100, 'must be between 0 and 100')
+  .meta({ example: '92.50' });
+
+/** Mandatory reason for controlled actions (audited). */
+export const reasonSchema = z.string().trim().min(3).max(500);
+/** Optimistic-lock version sent back with every command (ARCHITECTURE.md §6.3). */
+export const versionSchema = z.number().int().min(1);

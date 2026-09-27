@@ -9,19 +9,55 @@ import { ComingSoonPage, NotFoundPage } from './pages/ErrorPages';
 import { LoginPage } from './pages/LoginPage';
 import { RequireAuth, RequirePermission } from './routes/guards';
 
-// Administration pages are split into their own chunks.
-const UsersPage = lazy(() => import('./pages/admin/UsersPage').then((m) => ({ default: m.UsersPage })));
-const RolesPage = lazy(() => import('./pages/admin/RolesPage').then((m) => ({ default: m.RolesPage })));
-const SettingsPage = lazy(() => import('./pages/admin/SettingsPage').then((m) => ({ default: m.SettingsPage })));
-const AuditLogPage = lazy(() => import('./pages/admin/AuditLogPage').then((m) => ({ default: m.AuditLogPage })));
+// Feature pages are split into their own chunks.
+const page = <K extends string>(load: () => Promise<Record<K, React.ComponentType>>, name: K) =>
+  lazy(() => load().then((m) => ({ default: m[name] })));
 
-const PHASE1_PAGES: Record<string, React.ReactElement> = {
+const UsersPage = page(() => import('./pages/admin/UsersPage'), 'UsersPage');
+const RolesPage = page(() => import('./pages/admin/RolesPage'), 'RolesPage');
+const SettingsPage = page(() => import('./pages/admin/SettingsPage'), 'SettingsPage');
+const AuditLogPage = page(() => import('./pages/admin/AuditLogPage'), 'AuditLogPage');
+const SuppliersPage = page(() => import('./pages/procurement/SuppliersPage'), 'SuppliersPage');
+const QualityPage = page(() => import('./pages/procurement/QualityPage'), 'QualityPage');
+const ScalesPage = page(() => import('./pages/procurement/ScalesPage'), 'ScalesPage');
+const EquipmentPage = page(() => import('./pages/procurement/EquipmentPage'), 'EquipmentPage');
+const PurchasesPage = page(() => import('./pages/procurement/PurchasesPage'), 'PurchasesPage');
+const NewVoucherPage = page(() => import('./pages/procurement/NewVoucherPage'), 'NewVoucherPage');
+const VoucherDetailPage = page(() => import('./pages/procurement/VoucherDetailPage'), 'VoucherDetailPage');
+const PaymentsPage = page(() => import('./pages/procurement/PaymentsPage'), 'PaymentsPage');
+
+/** Pages delivered so far, keyed by navigation path; other nav items show "coming in phase N". */
+const PAGES: Record<string, React.ReactElement> = {
   '/': <DashboardPage />,
+  '/suppliers': <SuppliersPage />,
+  '/quality': <QualityPage />,
+  '/scales': <ScalesPage />,
+  '/equipment': <EquipmentPage />,
+  '/purchases': <PurchasesPage />,
+  '/payments': <PaymentsPage />,
   '/admin/users': <UsersPage />,
   '/admin/roles': <RolesPage />,
   '/admin/settings': <SettingsPage />,
   '/admin/audit-log': <AuditLogPage />,
 };
+
+/** Routes that are not navigation items (detail and creation screens). */
+const EXTRA_ROUTES: { path: string; permission: string[]; element: React.ReactElement }[] = [
+  { path: '/purchases/new', permission: ['purchase:create'], element: <NewVoucherPage /> },
+  { path: '/purchases/:id', permission: ['purchase:read'], element: <VoucherDetailPage /> },
+];
+
+function Protected({ permission, children }: { permission?: string[]; children: React.ReactElement }) {
+  return (
+    <RequireAuth>
+      <AppShell>
+        <RequirePermission permission={permission}>
+          <Suspense fallback={<Loading />}>{children}</Suspense>
+        </RequirePermission>
+      </AppShell>
+    </RequireAuth>
+  );
+}
 
 export function App() {
   return (
@@ -30,17 +66,10 @@ export function App() {
       <Route path="/change-password" element={<RequireAuth><ChangePasswordPage /></RequireAuth>} />
       {NAV_ITEMS.map((item) => (
         <Route key={item.path} path={item.path} element={
-          <RequireAuth>
-            <AppShell>
-              <RequirePermission permission={item.permission}>
-                <Suspense fallback={<Loading />}>
-                  {PHASE1_PAGES[item.path] ?? <ComingSoonPage label={item.label} phase={item.phase} />}
-                </Suspense>
-              </RequirePermission>
-            </AppShell>
-          </RequireAuth>
+          <Protected permission={item.permission}>{PAGES[item.path] ?? <ComingSoonPage label={item.label} phase={item.phase} />}</Protected>
         } />
       ))}
+      {EXTRA_ROUTES.map((r) => <Route key={r.path} path={r.path} element={<Protected permission={r.permission}>{r.element}</Protected>} />)}
       <Route path="*" element={<RequireAuth><AppShell><NotFoundPage /></AppShell></RequireAuth>} />
     </Routes>
   );

@@ -1,0 +1,51 @@
+/**
+ * Exact decimal-string arithmetic for on-screen previews (BigInt fixed point).
+ * Business values are always computed by the server; the UI only previews them
+ * and never parses them into floats (ARCHITECTURE.md §3).
+ */
+const DECIMAL_RE = /^-?\d+(\.\d+)?$/;
+
+export function isDecimal(s: string, maxDp = 3): boolean {
+  return DECIMAL_RE.test(s.trim()) && (s.split('.')[1]?.length ?? 0) <= maxDp;
+}
+
+function toScaled(s: string, dp: number): bigint {
+  const [int = '0', frac = ''] = s.trim().replace(/^-/, '').split('.');
+  const v = BigInt(int + frac.padEnd(dp, '0').slice(0, dp));
+  return s.trim().startsWith('-') ? -v : v;
+}
+
+function fromScaled(v: bigint, dp: number): string {
+  const neg = v < 0n;
+  const abs = (neg ? -v : v).toString().padStart(dp + 1, '0');
+  const out = dp ? `${abs.slice(0, -dp)}.${abs.slice(-dp)}` : abs;
+  return neg ? `-${out}` : out;
+}
+
+/** a − b with `dp` decimals (e.g. net = gross − tare, dp 3). */
+export function subtract(a: string, b: string, dp = 3): string {
+  return fromScaled(toScaled(a, dp) - toScaled(b, dp), dp);
+}
+
+export function add(values: string[], dp = 3): string {
+  return fromScaled(values.reduce((acc, v) => acc + toScaled(v, dp), 0n), dp);
+}
+
+/** weight (3 dp) × price (2 dp) rounded half-up to 2 dp — same rule as the server default. */
+export function multiplyMoney(weightKg: string, price: string): string {
+  const product = toScaled(weightKg, 3) * toScaled(price, 2); // scale 10^5
+  const neg = product < 0n;
+  const abs = neg ? -product : product;
+  const rounded = (abs + 500n) / 1000n; // to scale 10^2, half up
+  return fromScaled(neg ? -rounded : rounded, 2);
+}
+
+/** "12345.5" → "12,345.50" for display. */
+export function formatNumber(value: string | null | undefined, dp = 2): string {
+  if (value === null || value === undefined || value === '') return '—';
+  if (!DECIMAL_RE.test(value)) return value;
+  const fixed = fromScaled(toScaled(value, dp), dp);
+  const [int, frac] = fixed.split('.');
+  const grouped = int!.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return frac ? `${grouped}.${frac}` : grouped;
+}

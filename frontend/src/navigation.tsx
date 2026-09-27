@@ -22,6 +22,9 @@ import type { ReactElement } from 'react';
 import type { Principal } from './api/types';
 import { hasPermission } from './auth/AuthContext';
 
+/** Highest roadmap phase already delivered (ARCHITECTURE.md §17); later items show a "coming" badge. */
+export const DELIVERED_PHASE = 2;
+
 export interface NavItem {
   label: string;
   path: string;
@@ -43,7 +46,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Payments', path: '/payments', icon: <PaymentsIcon />, permission: ['payment:read'], phase: 2, section: 'Operations' },
   { label: 'Lots & traceability', path: '/lots', icon: <AccountTreeIcon />, permission: ['lot:read', 'lot:lookup'], phase: 3, section: 'Operations' },
   { label: 'Wet processing', path: '/processing', icon: <WaterDropIcon />, permission: ['hopper:read', 'pulping:read', 'fermentation:read', 'washing:read'], phase: 3, section: 'Operations' },
-  { label: 'Equipment', path: '/equipment', icon: <BuildIcon />, permission: ['equipment:read'], phase: 3, section: 'Operations' },
+  { label: 'Equipment', path: '/equipment', icon: <BuildIcon />, permission: ['equipment:read'], phase: 2, section: 'Operations' },
   { label: 'Drying', path: '/drying', icon: <WbSunnyIcon />, permission: ['drying:read'], phase: 4, section: 'Operations' },
   { label: 'Warehouse', path: '/warehouse', icon: <Inventory2Icon />, permission: ['warehouse:read', 'srv:read', 'inventory:read'], phase: 5, section: 'Warehouse & people' },
   { label: 'Workers & payroll', path: '/workforce', icon: <GroupsIcon />, permission: ['worker:read', 'worker:read-own-group', 'worker:read-self'], phase: 6, section: 'Warehouse & people' },

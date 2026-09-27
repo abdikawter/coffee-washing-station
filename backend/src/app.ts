@@ -14,9 +14,15 @@ import { idempotencyMiddleware } from './http/idempotency.js';
 import { buildOpenApi } from './http/openapi.js';
 import { registerAuditLogRoutes } from './modules/audit-log/audit-log.routes.js';
 import { registerAuthRoutes } from './modules/auth/auth.routes.js';
+import { registerEquipmentRoutes } from './modules/equipment/equipment.routes.js';
 import { registerFileRoutes } from './modules/files/files.routes.js';
+import { registerFinanceRoutes } from './modules/finance/finance.routes.js';
 import { registerHealthRoutes } from './modules/health/health.routes.js';
+import { registerPaymentRoutes } from './modules/payments/payments.routes.js';
+import { registerPurchasingRoutes } from './modules/purchasing/purchasing.routes.js';
+import { registerQualityRoutes } from './modules/quality/quality.routes.js';
 import { registerSettingsRoutes } from './modules/settings/settings.routes.js';
+import { registerSupplierRoutes } from './modules/suppliers/suppliers.routes.js';
 import { registerUserRoutes } from './modules/users/users.routes.js';
 
 export const APP_VERSION = process.env.npm_package_version ?? '0.1.0';
@@ -81,6 +87,13 @@ export function createApp(c: Container, opts: AppOptions = {}): { app: Express; 
   registerSettingsRoutes(api, pool, c.settings);
   registerAuditLogRoutes(api, pool, c.audit);
   registerFileRoutes(api, pool, c.storage, c.audit, Math.round(env.MAX_UPLOAD_MB * 1024 * 1024));
+  // Phase 2 — Procurement
+  registerSupplierRoutes(api, c.suppliers);
+  registerQualityRoutes(api, c.quality, c.holds);
+  registerEquipmentRoutes(api, c.equipment, c.scales);
+  registerPurchasingRoutes(api, c.purchasing, c.settings);
+  registerPaymentRoutes(api, c.payments);
+  registerFinanceRoutes(api, pool, c.cash, c.audit);
   opts.extraRoutes?.(api);
 
   app.use(API_PREFIX, api.router);

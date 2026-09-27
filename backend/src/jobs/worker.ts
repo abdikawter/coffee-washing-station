@@ -38,8 +38,17 @@ export async function startWorker(c: Container): Promise<{ stop: () => Promise<v
     c.logger.info({ tokens, idempotencyKeys: idem.rowCount }, 'housekeeping purge done');
   });
 
+  // Phase 2: scales in service without a valid daily verification. Notifications arrive
+  // with Phase 7; until then the job flags them in the log (weighing is still gated by
+  // scale.unverifiedPolicy at voucher creation).
+  await queue.boss.work(QUEUES.CALIBRATION_DUE, async () => {
+    const due = await c.scales.dueForVerification();
+    if (due.length) c.logger.warn({ scales: due }, 'scales need verification');
+  });
+
   const tz = await c.settings.get<string>('station.timezone');
   await queue.boss.schedule(QUEUES.MAINTENANCE_PURGE, '15 2 * * *', null, { tz });
+  await queue.boss.schedule(QUEUES.CALIBRATION_DUE, '0 * * * *', null, { tz });
 
   c.logger.info('worker started');
   return {

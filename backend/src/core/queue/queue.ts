@@ -7,6 +7,7 @@ import type { TransactionalQueue } from '../outbox/outbox.service.js';
 export const QUEUES = {
   DOMAIN_EVENTS: 'domain-events',
   MAINTENANCE_PURGE: 'maintenance.purge-expired',
+  CALIBRATION_DUE: 'calibration-due',
 } as const;
 
 /**
