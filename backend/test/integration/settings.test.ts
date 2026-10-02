@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { bearer, createTestApp, tokenFor, type TestContext } from '../helpers/app.js';
+import { bearer, createRole, createTestApp, tokenFor, type TestContext } from '../helpers/app.js';
 
 let ctx: TestContext;
 let manager: { token: string; userId: string };
@@ -7,9 +7,9 @@ let admin: { token: string };
 let clerk: { token: string };
 beforeAll(async () => {
   ctx = await createTestApp();
-  manager = await tokenFor(ctx, ['SITE_MANAGER']);
+  manager = await tokenFor(ctx, [await createRole(ctx.pool, ['settings:read','settings:manage'])]);
   admin = await tokenFor(ctx, ['SUPER_ADMIN']);
-  clerk = await tokenFor(ctx, ['PURCHASING_CLERK']);
+  clerk = await tokenFor(ctx, [await createRole(ctx.pool, ['settings:read'])]);
 });
 afterAll(() => ctx.close());
 
@@ -60,7 +60,7 @@ describe('settings', () => {
     expect(noReason.status).toBe(400);
   });
 
-  it('system keys need settings:manage-system (SITE_MANAGER cannot, SUPER_ADMIN can)', async () => {
+  it('system keys need settings:manage-system (settings:manage alone cannot, SUPER_ADMIN can)', async () => {
     const s = await get('auth.maxFailedLogins');
     const sm = await request(ctx.app).put('/api/v1/settings/auth.maxFailedLogins').set(bearer(manager.token)).send({ value: 3, version: s.version, reason: 'harden' });
     expect(sm.status).toBe(403);
@@ -80,7 +80,7 @@ describe('settings', () => {
     await expect(ctx.c.settings.require(ctx.pool, 'defect.correctiveActionThresholdPct')).rejects.toMatchObject({ code: 'SETTING_NOT_CONFIGURED', statusCode: 422 });
   });
 
-  it('clerks can read but not change', async () => {
+  it('settings:read alone can read but not change', async () => {
     const s = await get('scale.unverifiedPolicy');
     const res = await request(ctx.app).put('/api/v1/settings/scale.unverifiedPolicy').set(bearer(clerk.token)).send({ value: 'WARN', version: s.version, reason: 'faster' });
     expect(res.status).toBe(403);

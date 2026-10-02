@@ -1,45 +1,23 @@
 /**
  * Roles and permissions — the seed source for `roles`, `permissions` and
- * `role_permissions`, derived row by row from the role–permission matrix in
- * ARCHITECTURE.md §7.
+ * `role_permissions`.
  *
- * Code checks PERMISSION CODES, never role names, so the SUPER_ADMIN can adjust
- * role_permissions at runtime without code changes. The seed only inserts rows
- * that are missing (new roles get their full default set; new permissions are
- * granted to the roles listed here); it never re-grants something an
- * administrator removed.
+ * Current setup: ONE role, SUPER_ADMIN, which holds every permission code and
+ * controls the whole system. The operational roles of the design matrix
+ * (ARCHITECTURE.md §7: Site Manager, Quality Inspector, Purchasing Clerk, …)
+ * are added here again when the business asks for them.
  *
- * Scoped variants (…-own-group, …-self, …-assigned) implement the bracketed
- * scope notes of the matrix; services apply the scope filter (ScopePolicy).
+ * Code checks PERMISSION CODES, never role names, so adding roles later needs
+ * no change to the modules. The seed only inserts rows that are missing (a new
+ * role gets its full default set; a new permission is granted to the roles
+ * listed here); it never re-grants something an administrator removed.
  */
 
-export const ROLE_CODES = [
-  'SUPER_ADMIN',
-  'SITE_MANAGER',
-  'QUALITY_INSPECTOR',
-  'PURCHASING_CLERK',
-  'CASHIER_ACCOUNTANT',
-  'PULPING_OPERATOR',
-  'DRYING_SUPERVISOR',
-  'STOREKEEPER',
-  'CAPITA',
-  'TEMP_WORKER',
-  'AUDITOR',
-] as const;
+export const ROLE_CODES = ['SUPER_ADMIN'] as const;
 export type RoleCode = (typeof ROLE_CODES)[number];
 
 export const ROLES: Record<RoleCode, { name: string; description: string }> = {
-  SUPER_ADMIN: { name: 'Super Administrator', description: 'System administration: users, roles, master data, settings.' },
-  SITE_MANAGER: { name: 'Site Manager', description: 'Approves vouchers, payments, SRVs, transfers, adjustments; manages business settings.' },
-  QUALITY_INSPECTOR: { name: 'Quality Inspector', description: 'Cherry inspection, voucher verification, holds, moisture and grading checks.' },
-  PURCHASING_CLERK: { name: 'Purchasing Clerk', description: 'Suppliers, weighing and purchase vouchers.' },
-  CASHIER_ACCOUNTANT: { name: 'Cashier / Accountant', description: 'Supplier payments, payroll payment, expenses, cash ledger.' },
-  PULPING_OPERATOR: { name: 'Pulping Operator', description: 'Hopper, flotation, pulping, fermentation, washing and grading records.' },
-  DRYING_SUPERVISOR: { name: 'Drying Supervisor', description: 'Drying beds and batches, moisture, raking, defects, workers and payroll preparation.' },
-  STOREKEEPER: { name: 'Storekeeper', description: 'Warehouse receipts, bin cards, transfers, adjustments and issues.' },
-  CAPITA: { name: 'Capita (group leader)', description: 'Leads a worker group: attendance, raking and ration requests for own group.' },
-  TEMP_WORKER: { name: 'Temporary Worker', description: 'Optional login to view own attendance and pay.' },
-  AUDITOR: { name: 'Auditor', description: 'Read access everywhere; audits, findings and corrective-action verification.' },
+  SUPER_ADMIN: { name: 'Super Administrator', description: 'Controls everything: every module, every action, users, roles and settings.' },
 };
 
 /** module:action → description. Module = text before the colon. */
@@ -195,112 +173,9 @@ export const PERMISSIONS: Record<string, string> = {
 
 export type PermissionCode = keyof typeof PERMISSIONS;
 
-const ALL_REPORTS = [
-  'report:procurement',
-  'report:quality',
-  'report:production',
-  'report:drying',
-  'report:warehouse',
-  'report:workforce',
-  'report:finance',
-];
-
-/** All "read" permissions — shared by SUPER_ADMIN (R everywhere) and AUDITOR. */
-const READ_EVERYTHING = [
-  'user:read', 'role:read', 'settings:read', 'auditlog:read', 'file:read',
-  'supplier:read', 'quality:read', 'quality:hold-read', 'quality:rules-read', 'scale:read',
-  'purchase:read', 'payment:read', 'lot:read', 'hopper:read', 'reconciliation:read', 'pulping:read',
-  'equipment:read', 'fermentation:read', 'washing:read', 'drying:read', 'moisture:read', 'raking:read',
-  'defect:read', 'warehouse:read', 'srv:read', 'inventory:read', 'worker:read', 'attendance:read',
-  'payroll:read', 'siv:read', 'expense:read', 'cash:read', 'audit:read', 'audit:read-unannounced',
-  'ca:read', ...ALL_REPORTS,
-];
-
+/** SUPER_ADMIN holds every permission code (new codes are granted to it by the seed automatically). */
 export const ROLE_PERMISSIONS: Record<RoleCode, string[]> = {
-  SUPER_ADMIN: [
-    ...READ_EVERYTHING,
-    'user:manage', 'role:manage', 'settings:manage', 'settings:manage-system', 'file:upload',
-    'supplier:create', 'supplier:update', 'supplier:status',
-    'quality:rules-manage', 'scale:manage', 'equipment:manage', 'equipment:maintenance-record',
-    'drying:manage', 'warehouse:manage', 'warehouse:update', 'worker:manage', 'worker:write',
-  ],
-  SITE_MANAGER: [
-    'user:read', 'role:read', 'settings:read', 'settings:manage', 'auditlog:read', 'file:upload', 'file:read',
-    'supplier:read', 'supplier:status',
-    'quality:read', 'quality:hold-read', 'quality:rules-read', 'quality:rules-manage',
-    'scale:read',
-    'purchase:read', 'purchase:return', 'purchase:approve', 'purchase:void',
-    'payment:read', 'payment:approve', 'payment:reverse',
-    'lot:read', 'hopper:read', 'reconciliation:read', 'reconciliation:review', 'pulping:read',
-    'equipment:read', 'equipment:manage', 'equipment:maintenance-record',
-    'fermentation:read', 'washing:read',
-    'drying:read', 'drying:record', 'drying:manage', 'moisture:read', 'raking:read', 'defect:read',
-    'warehouse:read', 'warehouse:update', 'warehouse:manage',
-    'srv:read', 'srv:approve',
-    'inventory:read', 'inventory:transfer-approve', 'inventory:adjust-approve', 'inventory:reverse',
-    'worker:read', 'worker:write', 'worker:manage', 'attendance:read', 'attendance:approve', 'payroll:read',
-    'siv:read', 'siv:approve', 'expense:read', 'expense:approve', 'cash:read',
-    'audit:read', 'ca:read', 'ca:create', 'ca:update', 'ca:close',
-    ...ALL_REPORTS, 'report:export',
-  ],
-  QUALITY_INSPECTOR: [
-    'settings:read', 'file:upload',
-    'supplier:read', 'quality:read', 'quality:inspect', 'quality:hold-read', 'quality:hold', 'quality:hold-release',
-    'quality:rules-read', 'scale:read', 'scale:verify',
-    'purchase:read', 'purchase:verify', 'purchase:return',
-    'lot:read', 'hopper:read', 'reconciliation:read', 'pulping:read', 'equipment:read',
-    'fermentation:read', 'fermentation:assess', 'washing:read', 'grading:record',
-    'drying:read', 'drying:final-verify', 'moisture:read', 'moisture:record', 'raking:read', 'defect:read',
-    'srv:read', 'ca:read', 'ca:create', 'ca:update',
-    'report:quality', 'report:production',
-  ],
-  PURCHASING_CLERK: [
-    'settings:read', 'file:upload',
-    'supplier:read', 'supplier:create', 'supplier:update', 'quality:read', 'scale:read', 'scale:verify',
-    'purchase:read', 'purchase:create', 'purchase:update', 'purchase:submit', 'purchase:cancel',
-    'payment:read', 'lot:read', 'hopper:read', 'reconciliation:read',
-    'ca:read-assigned', 'ca:update-assigned', 'report:procurement',
-  ],
-  CASHIER_ACCOUNTANT: [
-    'settings:read', 'file:upload',
-    'supplier:read', 'purchase:read', 'payment:read', 'payment:create', 'payment:disburse', 'lot:read',
-    'payroll:read', 'payroll:approve-cashier', 'payroll:pay',
-    'expense:read', 'expense:create', 'expense:pay', 'cash:read', 'cash:record',
-    'ca:read-assigned', 'ca:update-assigned', 'report:finance', 'report:export',
-  ],
-  PULPING_OPERATOR: [
-    'settings:read', 'file:upload',
-    'quality:hold-read', 'lot:read', 'hopper:read', 'hopper:record', 'reconciliation:read', 'reconciliation:run',
-    'pulping:read', 'pulping:record', 'equipment:read', 'equipment:maintenance-record',
-    'fermentation:read', 'fermentation:record', 'washing:read', 'washing:record', 'grading:record',
-    'ca:read-assigned', 'ca:update-assigned', 'report:production',
-  ],
-  DRYING_SUPERVISOR: [
-    'settings:read', 'file:upload',
-    'quality:hold-read', 'lot:read', 'equipment:read', 'equipment:maintenance-record',
-    'drying:read', 'drying:record', 'drying:final-verify', 'moisture:read', 'moisture:record',
-    'raking:read', 'raking:record', 'defect:read', 'defect:record',
-    'srv:read', 'srv:deliver',
-    'worker:read', 'worker:write', 'attendance:read', 'attendance:approve',
-    'payroll:read', 'payroll:prepare', 'payroll:approve-supervisor', 'siv:request',
-    'ca:create', 'ca:read-assigned', 'ca:update-assigned', 'report:drying',
-  ],
-  STOREKEEPER: [
-    'settings:read', 'file:upload',
-    'quality:hold-read', 'lot:read', 'drying:read', 'moisture:read',
-    'warehouse:read', 'warehouse:update', 'srv:read', 'srv:receive',
-    'inventory:read', 'inventory:transfer-request', 'inventory:adjust',
-    'siv:read', 'siv:request', 'siv:issue',
-    'ca:read-assigned', 'ca:update-assigned', 'report:warehouse',
-  ],
-  CAPITA: [
-    'file:upload', 'lot:lookup', 'drying:read',
-    'raking:read-own-group', 'raking:record-own-group', 'defect:read-own-group', 'defect:record-own-group',
-    'worker:read-own-group', 'attendance:read-own-group', 'attendance:record-own-group',
-    'payroll:read-own-group', 'siv:request-own-group',
-  ],
-  TEMP_WORKER: ['worker:read-self', 'attendance:read-self', 'payroll:read-self'],
-  AUDITOR: [...READ_EVERYTHING, 'file:upload', 'audit:manage', 'ca:create', 'ca:verify', 'report:export'],
+  SUPER_ADMIN: Object.keys(PERMISSIONS),
 };
 
 export function permissionModule(code: string): string {

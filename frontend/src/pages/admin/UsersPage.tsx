@@ -16,16 +16,17 @@ import { ErrorAlert, Loading, PageHeader, StatusChip } from '../../components/co
 import { ReasonDialog } from '../../components/ReasonDialog';
 import { formatDateTime, humanize } from '../../utils/format';
 
-export const ROLE_CODES = [
-  'SUPER_ADMIN', 'SITE_MANAGER', 'QUALITY_INSPECTOR', 'PURCHASING_CLERK', 'CASHIER_ACCOUNTANT', 'PULPING_OPERATOR',
-  'DRYING_SUPERVISOR', 'STOREKEEPER', 'CAPITA', 'TEMP_WORKER', 'AUDITOR',
-] as const;
+/** Roles come from the server (only SUPER_ADMIN for now; more roles are added later without UI changes). */
+function useRoles() {
+  return useQuery({ queryKey: ['roles'], queryFn: rolesApi.list, staleTime: 300_000 }).data ?? [];
+}
 
 function RoleCheckboxes({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const roles = useRoles();
   return (
     <FormGroup sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' } }}>
-      {ROLE_CODES.map((r) => (
-        <FormControlLabel key={r} label={humanize(r)} control={
+      {roles.map(({ code: r, name }) => (
+        <FormControlLabel key={r} label={name} control={
           <Checkbox checked={value.includes(r)} onChange={(e) => onChange(e.target.checked ? [...value, r] : value.filter((x) => x !== r))} />
         } />
       ))}
@@ -97,9 +98,6 @@ function EditRolesDialog({ user, onClose }: { user: User; onClose: () => void })
         <ErrorAlert error={m.error} />
         <RoleCheckboxes value={roles} onChange={setRoles} />
         <TextField sx={{ mt: 2 }} fullWidth label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} helperText="Recorded in the audit log" />
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-          Segregation of duties still applies: holding two roles never lets one person approve their own work.
-        </Typography>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
@@ -154,7 +152,7 @@ export function UsersPage() {
     queryFn: () => usersApi.list({ page: page + 1, pageSize, search: search.trim() || undefined, status: status || undefined, role: role || undefined }),
     placeholderData: keepPreviousData,
   });
-  useQuery({ queryKey: ['roles'], queryFn: rolesApi.list, staleTime: 300_000 }); // warm cache for the roles page
+  const roles = useRoles();
 
   const statusAction = action && ['deactivate', 'activate', 'unlock'].includes(action.kind) ? action : null;
 
@@ -170,7 +168,7 @@ export function UsersPage() {
         </TextField>
         <TextField size="small" select label="Role" value={role} onChange={(e) => { setRole(e.target.value); setPage(0); }} sx={{ minWidth: 220 }}>
           <MenuItem value="">All roles</MenuItem>
-          {ROLE_CODES.map((r) => <MenuItem key={r} value={r}>{humanize(r)}</MenuItem>)}
+          {roles.map((r) => <MenuItem key={r.code} value={r.code}>{r.name}</MenuItem>)}
         </TextField>
       </Stack>
       <ErrorAlert error={q.error} />

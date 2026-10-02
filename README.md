@@ -21,7 +21,7 @@ The design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (v2 for this stack
 
 **Phase 1 — Foundation: done.** Authentication, users/roles/permissions (seeded from the design's role matrix), employees, settings (with the "to confirm" workflow), hash-chained audit log, file storage, outbox + pg-boss worker, idempotency keys, document numbering, health checks, Swagger, and the frontend shell (login, forced password change, navigation by permission, dashboard, users, roles, settings, audit log). The full database (78 tables) is already migrated so later phases only add code.
 
-**Phase 2 — Procurement: done.** Suppliers (documents, status, history), cherry quality inspections with configurable rules, quality holds, equipment and maintenance, scales with daily verification (failed check → out of service + corrective action), purchase vouchers with server-computed totals and the full state machine (submit → verify → approve, return, cancel, void, PDF), supplier payments (approve → pay out → reverse, one live payment per voucher), cash ledger, and automatic lot creation with its `PURCHASED` event. Segregation of duties is enforced on every step. Build plan: [BUILD_PLAN.md](BUILD_PLAN.md).
+**Phase 2 — Procurement: done.** Suppliers (documents, status, history), cherry quality inspections with configurable rules, quality holds, equipment and maintenance, scales with daily verification (failed check → out of service + corrective action), purchase vouchers with server-computed totals and the full state machine (submit → verify → approve, return, cancel, void, PDF), supplier payments (approve → pay out → reverse, one live payment per voucher), cash ledger, and automatic lot creation with its `PURCHASED` event. Build plan: [BUILD_PLAN.md](BUILD_PLAN.md).
 
 ## Run locally
 
@@ -43,6 +43,8 @@ npm run dev                              # http://localhost:5173  (proxies /api 
 ```
 
 Sign in as `admin` with `SEED_ADMIN_PASSWORD`; you will be asked to choose a new password.
+
+**Roles:** for now there is a single role, **SUPER_ADMIN**, with every permission (no segregation of duties). More roles are added later on request — see ARCHITECTURE.md §7.
 
 ## Checks (the phase exit gate)
 

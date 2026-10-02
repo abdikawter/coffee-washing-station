@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type { Api } from '../../http/api.js';
 import { boolQuery, list, pagination, single, uuidParam } from '../../http/schemas.js';
-import { ROLE_CODES } from '../access/catalog.js';
 import type { RolesService } from '../access/roles.service.js';
 import { DEPARTMENTS, type EmployeesService } from './employees.service.js';
 import type { UsersService } from './users.service.js';
@@ -44,7 +43,9 @@ const employeeSchema = z
 const username = z.string().trim().min(3).max(50).regex(/^[a-zA-Z0-9._-]+$/, 'letters, digits, dot, dash, underscore');
 const reason = z.string().trim().min(3).max(500);
 const phone = z.string().trim().min(5).max(30).nullable();
-const roleCodes = z.array(z.enum(ROLE_CODES)).min(1).max(ROLE_CODES.length);
+// Role codes are checked against the roles table (unknown → 400), so roles added later need no code change.
+const roleCode = z.string().regex(/^[A-Z][A-Z0-9_]{1,49}$/, 'role code, e.g. SUPER_ADMIN');
+const roleCodes = z.array(roleCode).min(1).max(50);
 
 export function registerUserRoutes(api: Api, users: UsersService, roles: RolesService, employees: EmployeesService): void {
   // ---------------- Users ----------------
@@ -53,7 +54,7 @@ export function registerUserRoutes(api: Api, users: UsersService, roles: RolesSe
     access: { permission: 'user:read' },
     query: pagination(['username', 'fullName', 'createdAt', 'lastLoginAt'] as const, 'username').extend({
       status: z.enum(['ACTIVE', 'INACTIVE', 'LOCKED']).optional(),
-      role: z.enum(ROLE_CODES).optional(),
+      role: roleCode.optional(),
       search: z.string().trim().min(1).max(100).optional(),
     }).strict(),
     response: { status: 200, description: 'Page of users', schema: list(userSchema) },
@@ -134,7 +135,6 @@ export function registerUserRoutes(api: Api, users: UsersService, roles: RolesSe
 
   api.route('Roles', {
     method: 'put', path: '/roles/:id/permissions', summary: 'Replace the permissions of a role',
-    description: 'Segregation of duties still applies regardless of permissions held.',
     access: { permission: 'role:manage' }, params: uuidParam,
     body: z.object({ permissionCodes: z.array(z.string().min(3).max(64)).max(500), reason }).strict(),
     response: { status: 200, description: 'Updated role', schema: single(roleSchema) },

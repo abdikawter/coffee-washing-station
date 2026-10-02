@@ -33,27 +33,9 @@ describe('database schema (migrations on an empty database)', () => {
     await expect(pool.query(`TRUNCATE audit_logs`)).rejects.toMatchObject({ code: 'P0A01' });
   });
 
-  it('enforces segregation of duties at database level (defence in depth)', async () => {
-    const u = await createUser(pool, []);
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      const wh = await client.query(`INSERT INTO warehouses (code, name, type) VALUES ('W-SOD', 'W', 'PARCHMENT_STORE') RETURNING id`);
-      const sec = await client.query(`INSERT INTO warehouse_sections (warehouse_id, code, name) VALUES ($1, 'S1', 'S') RETURNING id`, [wh.rows[0].id]);
-      const s1 = await client.query(`INSERT INTO warehouse_stacks (section_id, code, qr_token) VALUES ($1, 'A', 'qr-a-sod') RETURNING id`, [sec.rows[0].id]);
-      const s2 = await client.query(`INSERT INTO warehouse_stacks (section_id, code, qr_token) VALUES ($1, 'B', 'qr-b-sod') RETURNING id`, [sec.rows[0].id]);
-      const item = await client.query(`INSERT INTO inventory_items (code, name, category, unit) VALUES ('PARCH-SOD', 'Parchment', 'PARCHMENT_COFFEE', 'kg') RETURNING id`);
-      await expect(
-        client.query(
-          `INSERT INTO stock_transfers (transfer_no, item_id, from_stack_id, to_stack_id, quantity, requested_by_id, approved_by_id)
-           VALUES ('TRF-SOD', $1, $2, $3, 10, $4, $4)`,
-          [item.rows[0].id, s1.rows[0].id, s2.rows[0].id, u.id],
-        ),
-      ).rejects.toMatchObject({ code: '23514', constraint: 'ck_transfer_sod' });
-    } finally {
-      await client.query('ROLLBACK');
-      client.release();
-    }
+  it('has no segregation-of-duties constraints (removed in 0014)', async () => {
+    const { rows } = await pool.query(`SELECT conname FROM pg_constraint WHERE conname ~ '^ck_.*_sod$'`);
+    expect(rows).toEqual([]);
   });
 
   it('treats NULL lot/grade as equal in stock balance keys (NULLS NOT DISTINCT)', async () => {

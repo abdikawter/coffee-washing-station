@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { bearer, createTestApp, login, tokenFor, uniqueName, type TestContext } from '../helpers/app.js';
+import { bearer, createRole, createTestApp, login, tokenFor, uniqueName, type TestContext } from '../helpers/app.js';
 
 let ctx: TestContext;
 let admin: { token: string; userId: string };
@@ -13,12 +13,12 @@ const api = () => request(ctx.app);
 
 describe('users & roles', () => {
   it('creates a user who must change the temporary password; audit hides the hash', async () => {
-    const username = uniqueName('clerk');
+    const username = uniqueName('admin');
     const res = await api().post('/api/v1/users').set(bearer(admin.token)).send({
-      username, fullName: 'Almaz Clerk', roleCodes: ['PURCHASING_CLERK'], temporaryPassword: 'TempPass12345', phone: '0911000000',
+      username, fullName: 'Almaz Admin', roleCodes: ['SUPER_ADMIN'], temporaryPassword: 'TempPass12345', phone: '0911000000',
     });
     expect(res.status).toBe(201);
-    expect(res.body.data).toMatchObject({ username, roles: ['PURCHASING_CLERK'], mustChangePassword: true, status: 'ACTIVE' });
+    expect(res.body.data).toMatchObject({ username, roles: ['SUPER_ADMIN'], mustChangePassword: true, status: 'ACTIVE' });
     expect(res.body.data).not.toHaveProperty('passwordHash');
     const { body } = await login(ctx.app, username, 'TempPass12345');
     expect(body.data.user.permissions).toContain('purchase:create');
@@ -28,7 +28,7 @@ describe('users & roles', () => {
 
   it('rejects duplicate usernames, unknown roles and weak passwords', async () => {
     const username = uniqueName('dup');
-    const body = { username, fullName: 'Dup User', roleCodes: ['AUDITOR'], temporaryPassword: 'TempPass12345' };
+    const body = { username, fullName: 'Dup User', roleCodes: ['SUPER_ADMIN'], temporaryPassword: 'TempPass12345' };
     expect((await api().post('/api/v1/users').set(bearer(admin.token)).send(body)).status).toBe(201);
     const dup = await api().post('/api/v1/users').set(bearer(admin.token)).send(body);
     expect(dup.status).toBe(409);
@@ -48,11 +48,13 @@ describe('users & roles', () => {
   });
 
   it('replaces roles with a reason; permission change applies to existing tokens at once', async () => {
-    const target = await tokenFor(ctx, ['AUDITOR']);
+    const reader = await createRole(ctx.pool, ['auditlog:read']);
+    const other = await createRole(ctx.pool, ['settings:read']);
+    const target = await tokenFor(ctx, [reader]);
     expect((await api().get('/api/v1/audit-logs').set(bearer(target.token))).status).toBe(200);
-    const res = await api().put(`/api/v1/users/${target.userId}/roles`).set(bearer(admin.token)).send({ roleCodes: ['STOREKEEPER'], reason: 'moved to store' });
+    const res = await api().put(`/api/v1/users/${target.userId}/roles`).set(bearer(admin.token)).send({ roleCodes: [other], reason: 'moved to store' });
     expect(res.status).toBe(200);
-    expect(res.body.data.roles).toEqual(['STOREKEEPER']);
+    expect(res.body.data.roles).toEqual([other]);
     expect((await api().get('/api/v1/audit-logs').set(bearer(target.token))).status).toBe(403);
   });
 
@@ -66,13 +68,13 @@ describe('users & roles', () => {
     const second = await tokenFor(ctx, ['SUPER_ADMIN']);
     for (const o of others.rows) await ctx.pool.query(`UPDATE users SET status = 'INACTIVE' WHERE id = $1`, [o.id]);
     await ctx.pool.query(`UPDATE users SET status = 'INACTIVE' WHERE id = $1`, [second.userId]);
-    const res = await api().put(`/api/v1/users/${admin.userId}/roles`).set(bearer(admin.token)).send({ roleCodes: ['AUDITOR'], reason: 'oops' });
+    const res = await api().put(`/api/v1/users/${admin.userId}/roles`).set(bearer(admin.token)).send({ roleCodes: [await createRole(ctx.pool, ['settings:read'])], reason: 'oops' });
     expect(res.body.code).toBe('LAST_SUPER_ADMIN');
     for (const o of others.rows) await ctx.pool.query(`UPDATE users SET status = 'ACTIVE' WHERE id = $1`, [o.id]);
   });
 
   it('deactivate / activate / reset-password flow', async () => {
-    const t = await tokenFor(ctx, ['AUDITOR']);
+    const t = await tokenFor(ctx, [await createRole(ctx.pool, ['settings:read'])]);
     const d = await api().post(`/api/v1/users/${t.userId}/deactivate`).set(bearer(admin.token)).send({ reason: 'left the station' });
     expect(d.body.data.status).toBe('INACTIVE');
     expect((await api().get('/api/v1/auth/me').set(bearer(t.token))).status).toBe(401);
@@ -86,15 +88,20 @@ describe('users & roles', () => {
 
   it('lists roles/permissions and edits role permissions (with SUPER_ADMIN lockout guard)', async () => {
     const roles = await api().get('/api/v1/roles').set(bearer(admin.token));
-    expect(roles.body.data).toHaveLength(11);
-    const sa = roles.body.data.find((r: { code: string }) => r.code === 'SUPER_ADMIN');
-    const bad = await api().put(`/api/v1/roles/${sa.id}/permissions`).set(bearer(admin.token)).send({ permissionCodes: ['user:read'], reason: 'test' });
-    expect(bad.body.code).toBe('SUPER_ADMIN_LOCKOUT');
-    const cap = roles.body.data.find((r: { code: string }) => r.code === 'CAPITA');
-    const upd = await api().put(`/api/v1/roles/${cap.id}/permissions`).set(bearer(admin.token)).send({ permissionCodes: [...cap.permissions, 'drying:read'], reason: 'same set' });
-    expect(upd.status).toBe(200);
+    // the catalog seeds one system role, SUPER_ADMIN, holding every permission
+    const system = roles.body.data.filter((r: { isSystem: boolean }) => r.isSystem);
+    expect(system.map((r: { code: string }) => r.code)).toEqual(['SUPER_ADMIN']);
+    const sa = system[0];
     const perms = await api().get('/api/v1/permissions').set(bearer(admin.token));
     expect(perms.body.data.length).toBeGreaterThan(100);
+    expect(sa.permissions).toHaveLength(perms.body.data.length);
+    const bad = await api().put(`/api/v1/roles/${sa.id}/permissions`).set(bearer(admin.token)).send({ permissionCodes: ['user:read'], reason: 'test' });
+    expect(bad.body.code).toBe('SUPER_ADMIN_LOCKOUT');
+    const code = await createRole(ctx.pool, ['drying:read']);
+    const custom = (await api().get('/api/v1/roles').set(bearer(admin.token))).body.data.find((r: { code: string }) => r.code === code);
+    const upd = await api().put(`/api/v1/roles/${custom.id}/permissions`).set(bearer(admin.token)).send({ permissionCodes: ['drying:read', 'lot:read'], reason: 'extend' });
+    expect(upd.status).toBe(200);
+    expect(upd.body.data.permissions).toEqual(['drying:read', 'lot:read']);
   });
 
   it('manages employees', async () => {

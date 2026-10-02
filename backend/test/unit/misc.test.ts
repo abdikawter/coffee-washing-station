@@ -31,7 +31,6 @@ describe('password policy', () => {
 describe('pg error mapping', () => {
   it('maps constraint errors to API errors', () => {
     expect(mapPgError({ code: '23505', constraint: 'users_username_key' })).toMatchObject({ statusCode: 409, code: 'DUPLICATE' });
-    expect(mapPgError({ code: '23514', constraint: 'ck_srv_sod' })).toMatchObject({ statusCode: 403, code: 'SEGREGATION_OF_DUTIES' });
     expect(mapPgError({ code: '23514', constraint: 'ck_moisture' })).toMatchObject({ statusCode: 422 });
     expect(mapPgError({ code: 'P0A01' })).toMatchObject({ statusCode: 409, code: 'APPEND_ONLY' });
     expect(mapPgError(new Error('x'))).toBeUndefined();

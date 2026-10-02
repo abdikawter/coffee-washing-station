@@ -6,7 +6,7 @@ import type { RouteRecord } from './types.js';
 const ERROR_RESPONSES: Record<string, string> = {
   '400': 'Validation error',
   '401': 'Not authenticated',
-  '403': 'Forbidden / segregation of duties / password change required',
+  '403': 'Forbidden / password change required',
   '404': 'Not found',
   '409': 'Conflict / stale version',
   '422': 'Business rule violation',

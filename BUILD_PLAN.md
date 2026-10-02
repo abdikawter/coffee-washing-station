@@ -26,10 +26,10 @@ Each phase ends only when its **exit gate** (bottom of each phase + the common g
 ## How every phase is built
 
 ### Order of work inside a phase
-1. **Confirm rules**: re-read the phase's rows in §9 (workflow), §11 (rules, SoD) and §20 (settings); list open questions; agree defaults (a PROVISIONAL setting when unsure).
+1. **Confirm rules**: re-read the phase's rows in §9 (workflow), §11 (rules) and §20 (settings); list open questions; agree defaults (a PROVISIONAL setting when unsure).
 2. **Database**: the tables already exist (migrations 0001–0012). Add a new migration `NNNN_*.sql` only for seed/reference data, extra indexes or corrections — never edit an applied file.
 3. **Domain code** (`modules/<m>/domain/*.ts`): pure calculators, state machines, validators + unit tests first.
-4. **Services**: `withTransaction`, row locks, SoD checks, settings snapshot, audit row, lot event / ledger entry, outbox event — all in one transaction.
+4. **Services**: `withTransaction`, row locks, settings snapshot, audit row, lot event / ledger entry, outbox event — all in one transaction.
 5. **Routes**: `api.route(...)` with `access` permission, Zod schemas, response schema → appears in Swagger automatically.
 6. **Frontend**: API functions + types, pages, forms (React Hook Form + Zod), permission gating with `<Can>`.
 7. **Jobs**: pg-boss queues/schedules the phase needs.
@@ -42,14 +42,14 @@ Each phase ends only when its **exit gate** (bottom of each phase + the common g
 - Business dates `YYYY-MM-DD` in the station timezone; events `timestamptz`.
 - State changes are **commands** (`POST /x/:id/approve`) with `{version, reason?}`; optimistic locking via `version`.
 - Ledgers (`lot_events`, `inventory_transactions`, `cash_transactions`, `audit_logs`) are append-only; corrections = reversal entries.
-- Every controlled pair obeys segregation of duties (service check + DB CHECK) — for every role, including SUPER_ADMIN.
+- Segregation of duties is **not** enforced for now (single SUPER_ADMIN; see "Access model (current)" below).
 - Money- and stock-moving commands are `idempotent: true` (Idempotency-Key).
 - Document numbers come from `SequenceService` (`numbering.formats` setting).
 - Thresholds come from settings; if a required one is UNSET → 422 `SETTING_NOT_CONFIGURED`; the value used is snapshotted on the record.
 
 ### Common exit gate (every phase)
 - `npm run typecheck` and `npm run lint` pass (backend + frontend).
-- `npm test` green: unit, integration, authorization matrix (every route × every role).
+- `npm test` green: unit, integration, authorization matrix (every route × SUPER_ADMIN + test roles).
 - Migrations apply on an empty database; the phase's end-to-end scenario passes.
 - `npm run build` (both apps) and `npm run openapi` succeed; GitHub Actions CI green.
 - Manual walkthrough on a phone-width screen for any mobile page.
@@ -333,6 +333,14 @@ Each phase ends only when its **exit gate** (bottom of each phase + the common g
 Render deploys automatically from `main` after CI passes; each deploy runs migrations and the idempotent seed before starting the API.
 
 ---
+
+## Access model (current)
+
+- **One role: SUPER_ADMIN, holding every permission** (decision of 2026-10-02). The other ten roles of ARCHITECTURE.md §7 were removed from the catalog and from existing databases (migration `0014_single_super_admin.sql`); they are added back only when requested.
+- **Segregation of duties removed** — service checks deleted and DB `ck_*_sod` constraints dropped. One super admin can create, verify, approve and pay the same voucher. Every action is still recorded in the hash-chained audit log.
+- Permission codes remain on every route, so adding roles later needs only catalog entries (and UI role pickers already load roles from the API).
+- Tests check denial with throwaway roles (`createRole()` test helper) instead of the old matrix roles.
+- Any SoD-related text in the phases above ("approver ≠ requester", SoD tests in exit gates) no longer applies until SoD is reintroduced; the Phase 1–2 sections describe what was built at the time.
 
 ## Decisions still needed (collected)
 

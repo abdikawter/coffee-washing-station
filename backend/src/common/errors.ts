@@ -34,13 +34,6 @@ export class ForbiddenError extends AppError {
   }
 }
 
-/** Two halves of a controlled pair attempted by the same person (§11.3). */
-export class SegregationOfDutiesError extends AppError {
-  constructor(message: string, details?: unknown) {
-    super(403, 'SEGREGATION_OF_DUTIES', 'SEGREGATION_OF_DUTIES', message, details);
-  }
-}
-
 export class NotFoundError extends AppError {
   constructor(entity: string, id?: string) {
     super(404, 'NOT_FOUND', 'NOT_FOUND', id ? `${entity} ${id} not found` : `${entity} not found`);
@@ -91,9 +84,6 @@ export function mapPgError(err: unknown): AppError | undefined {
         constraint: e.constraint,
       });
     case '23514':
-      if (e.constraint?.endsWith('_sod')) {
-        return new SegregationOfDutiesError('The same person cannot perform both controlled steps', { constraint: e.constraint });
-      }
       return new BusinessRuleError('CHECK_CONSTRAINT', 'The values violate a data rule', { constraint: e.constraint });
     case 'P0A01':
       return new ConflictError('This ledger is append-only; post a reversal instead', 'APPEND_ONLY', { table: e.table });

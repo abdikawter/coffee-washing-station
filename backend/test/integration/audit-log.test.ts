@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { bearer, createTestApp, tokenFor, type TestContext } from '../helpers/app.js';
+import { bearer, createRole, createTestApp, tokenFor, type TestContext } from '../helpers/app.js';
 
 let ctx: TestContext;
 beforeAll(async () => { ctx = await createTestApp(); });
@@ -7,7 +7,7 @@ afterAll(() => ctx.close());
 
 describe('audit log', () => {
   it('records actions with request metadata and filters them', async () => {
-    const auditor = await tokenFor(ctx, ['AUDITOR']); // login → LOGIN entry
+    const auditor = await tokenFor(ctx, [await createRole(ctx.pool, ['auditlog:read'])]); // login → LOGIN entry
     const res = await request(ctx.app)
       .get(`/api/v1/audit-logs?action=LOGIN&userId=${auditor.userId}`)
       .set(bearer(auditor.token));
@@ -46,7 +46,7 @@ describe('audit log', () => {
         })(),
       ),
     );
-    const auditor = await tokenFor(ctx, ['AUDITOR']);
+    const auditor = await tokenFor(ctx, [await createRole(ctx.pool, ['auditlog:read'])]);
     const res = await request(ctx.app).get('/api/v1/audit-logs/verify').set(bearer(auditor.token));
     expect(res.body.data.valid).toBe(true);
     expect(res.body.data.checked).toBeGreaterThan(15);
@@ -69,7 +69,7 @@ describe('audit log', () => {
   });
 
   it('is readable only with auditlog:read', async () => {
-    const clerk = await tokenFor(ctx, ['PURCHASING_CLERK']);
+    const clerk = await tokenFor(ctx, [await createRole(ctx.pool, ['settings:read'])]);
     expect((await request(ctx.app).get('/api/v1/audit-logs').set(bearer(clerk.token))).status).toBe(403);
   });
 });

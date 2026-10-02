@@ -2,7 +2,6 @@ import type pg from 'pg';
 import { assertAcceptableEntryTime } from '../../common/business-time.js';
 import { Decimal, type RoundingMode } from '../../common/decimal.js';
 import { BusinessRuleError, NotFoundError, StaleVersionError, ValidationError } from '../../common/errors.js';
-import { assertSegregation, SOD_RULES } from '../../common/policies/segregation-of-duties.js';
 import { businessDate } from '../../common/util.js';
 import type { AuditAction, AuditLogService } from '../../core/audit-log/audit-log.service.js';
 import type { LotService } from '../../core/lots/lot.service.js';
@@ -78,8 +77,8 @@ const SORT = { voucherDate: 'pv.voucher_date', voucherNo: 'pv.voucher_no', total
 
 /**
  * Purchase vouchers (ARCHITECTURE.md §9.1 "Weighing + voucher draft" … "Approve").
- * Totals are always computed here; segregation of duties is checked after the
- * voucher row is locked (and again by ck_pv_sod in the database).
+ * Totals are always computed here; every state change locks the voucher row and
+ * checks its optimistic version.
  */
 export class PurchasingService {
   constructor(
@@ -357,21 +356,16 @@ export class PurchasingService {
           break;
         }
         case 'verify':
-          assertSegregation(SOD_RULES.PV_VERIFIER, { verifier: actor.id, creator: v.createdById, weighingClerk: v.weighingClerkId });
           push('verified_by_id', actor.id);
           push('verified_at', new Date());
           break;
         case 'return':
           set.push('submitted_at = NULL', 'verified_by_id = NULL', 'verified_at = NULL');
           break;
-        case 'approve': {
-          assertSegregation(SOD_RULES.PV_APPROVER, {
-            approver: actor.id, creator: v.createdById, weighingClerk: v.weighingClerkId, verifier: v.verifiedById,
-          });
+        case 'approve':
           push('approved_by_id', actor.id);
           push('approved_at', new Date());
           break;
-        }
         case 'cancel':
         case 'void':
           if (cmd === 'void') await this.assertVoidable(tx, id);
@@ -415,12 +409,11 @@ export class PurchasingService {
 
   /**
    * Called by payments inside their transaction: disbursement marks the voucher
-   * PAID (cashier recorded; cashier ≠ weighing clerk [MANUAL]); reversal returns it to APPROVED.
+   * PAID (paying cashier recorded); reversal returns it to APPROVED.
    */
   async markPaid(tx: pg.PoolClient, voucherId: string, cashierId: string): Promise<VoucherRow> {
     const v = await this.lock(tx, voucherId);
     const to = nextVoucherStatus(v.status, 'pay');
-    assertSegregation(SOD_RULES.PV_CASHIER_NOT_WEIGHING_CLERK, { cashier: cashierId, weighingClerk: v.weighingClerkId });
     await tx.query('UPDATE purchase_vouchers SET status = $2, cashier_id = $3, version = version + 1 WHERE id = $1', [voucherId, to, cashierId]);
     return v;
   }

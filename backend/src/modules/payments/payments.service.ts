@@ -1,6 +1,5 @@
 import type pg from 'pg';
 import { BusinessRuleError, NotFoundError } from '../../common/errors.js';
-import { assertSegregation, SOD_RULES } from '../../common/policies/segregation-of-duties.js';
 import type { AuditAction, AuditLogService } from '../../core/audit-log/audit-log.service.js';
 import type { CashLedgerService } from '../../core/cash-ledger/cash-ledger.service.js';
 import type { LotService } from '../../core/lots/lot.service.js';
@@ -42,7 +41,7 @@ const SORT = { createdAt: 'p.created_at', paymentDate: 'p.payment_date', amount:
 /**
  * Supplier payments (ARCHITECTURE.md §9.1 "Payment"): one live payment per
  * voucher (DB partial unique index), amount = voucher total (no partial
- * payments), approver ≠ cashier, cashier ≠ the voucher's weighing clerk.
+ * payments).
  * Disbursement writes the cash ledger, marks the voucher PAID and — with
  * purchase.lotCreationTrigger = ON_PAYMENT — creates the lot, all in one transaction.
  */
@@ -93,7 +92,6 @@ export class PaymentsService {
       }
       const live = await tx.query(`SELECT payment_no FROM supplier_payments WHERE voucher_id = $1 AND status IN ('PENDING_APPROVAL', 'APPROVED', 'PAID')`, [v.id]);
       if (live.rows[0]) throw new BusinessRuleError('PAYMENT_ALREADY_EXISTS', 'This voucher already has a payment', { paymentNo: live.rows[0].payment_no });
-      assertSegregation(SOD_RULES.PV_CASHIER_NOT_WEIGHING_CLERK, { cashier: actor.id, weighingClerk: v.weighingClerkId });
 
       const requiresApproval = await this.settings.getIn<boolean>(tx, 'payment.requiresApproval');
       const paymentNo = await this.sequences.next(tx, 'PAY');
@@ -123,7 +121,6 @@ export class PaymentsService {
       switch (cmd) {
         case 'approve':
         case 'reject':
-          assertSegregation(SOD_RULES.PAYMENT_APPROVER, { approver: actor.id, cashier: p.cashierId });
           await tx.query(
             `UPDATE supplier_payments SET status = $2, approved_by_id = $3, approved_at = now(), reject_reason = $4 WHERE id = $1`,
             [id, to, actor.id, cmd === 'reject' ? input.reason : null],
@@ -131,7 +128,6 @@ export class PaymentsService {
           action = cmd === 'approve' ? 'APPROVE' : 'REJECT';
           break;
         case 'disburse': {
-          if (p.approvedById) assertSegregation(SOD_RULES.PAYMENT_APPROVER, { approver: p.approvedById, cashier: actor.id });
           const v = await this.purchasing.markPaid(tx, p.voucherId, actor.id);
           await tx.query(`UPDATE supplier_payments SET status = $2, paid_at = now(), cashier_id = $3 WHERE id = $1`, [id, to, actor.id]);
           await this.cash.post(tx, {

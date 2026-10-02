@@ -63,9 +63,9 @@ const voucherBody = z.object({
 
 const COMMANDS: { cmd: VoucherCommandName; permission: string; summary: string; reason: 'required' | 'optional' }[] = [
   { cmd: 'submit', permission: 'purchase:submit', summary: 'Submit a draft for verification', reason: 'optional' },
-  { cmd: 'verify', permission: 'purchase:verify', summary: 'Verify grade and weights (verifier ∉ {creator, weighing clerk})', reason: 'optional' },
+  { cmd: 'verify', permission: 'purchase:verify', summary: 'Verify grade and weights', reason: 'optional' },
   { cmd: 'return', permission: 'purchase:return', summary: 'Return a pending/verified voucher to draft for correction', reason: 'required' },
-  { cmd: 'approve', permission: 'purchase:approve', summary: 'Approve (approver ∉ {creator, weighing clerk, verifier})', reason: 'optional' },
+  { cmd: 'approve', permission: 'purchase:approve', summary: 'Approve the voucher', reason: 'optional' },
   { cmd: 'cancel', permission: 'purchase:cancel', summary: 'Cancel a draft, pending or verified voucher', reason: 'required' },
   { cmd: 'void', permission: 'purchase:void', summary: 'Void an approved voucher (no live payment; lot still PURCHASED)', reason: 'required' },
 ];

@@ -40,7 +40,7 @@ export function registerPaymentRoutes(api: Api, payments: PaymentsService): void
   api.route('Payments', {
     method: 'post', path: '/payments', summary: 'Prepare the payment of an approved voucher',
     description:
-      'Amount = voucher total (no partial payments). One live payment per voucher. The cashier cannot be the voucher\'s weighing clerk. ' +
+      'Amount = voucher total (no partial payments). One live payment per voucher. ' +
       'Created PENDING_APPROVAL, or APPROVED when `payment.requiresApproval` is false.',
     access: { permission: 'payment:create' }, idempotent: true,
     body: z.object({
@@ -53,7 +53,7 @@ export function registerPaymentRoutes(api: Api, payments: PaymentsService): void
   });
 
   const commands = [
-    { cmd: 'approve', permission: 'payment:approve', summary: 'Approve a payment (approver ≠ cashier)', reason: false },
+    { cmd: 'approve', permission: 'payment:approve', summary: 'Approve a payment', reason: false },
     { cmd: 'reject', permission: 'payment:approve', summary: 'Reject a payment (reason required)', reason: true },
     { cmd: 'disburse', permission: 'payment:disburse', summary: 'Pay out: cash ledger OUT, voucher → PAID, lot created (ON_PAYMENT)', reason: false },
     { cmd: 'reverse', permission: 'payment:reverse', summary: 'Reverse a paid payment: mirror cash entry, voucher → APPROVED (reason required)', reason: true },

@@ -1,14 +1,15 @@
 /**
  * Phase 2 exit gate: supplier → inspection → scale check → voucher → verify →
- * approve → pay → lot, plus segregation of duties, concurrency, scale policy,
- * holds, reversal and void.
+ * approve → pay → lot, plus concurrency, scale policy, holds, reversal and void.
+ * Every actor is a SUPER_ADMIN (the only role for now); "readOnly" holds the
+ * *:read permissions only and checks that commands are refused without permission.
  */
 import request from 'supertest';
-import { bearer, createTestApp, tokenFor, uniqueName, type TestContext } from '../helpers/app.js';
+import { bearer, createRole, createTestApp, tokenFor, uniqueName, type TestContext } from '../helpers/app.js';
 
 let ctx: TestContext;
 type Tok = { token: string; userId: string };
-let admin: Tok, manager: Tok, inspector: Tok, clerk: Tok, cashier: Tok;
+let admin: Tok, manager: Tok, inspector: Tok, clerk: Tok, cashier: Tok, readOnly: Tok;
 let coffeeTypeId: string;
 let scaleId: string;
 
@@ -64,8 +65,10 @@ async function approvedVoucher(creator: Tok = clerk): Promise<{ id: string; vers
 beforeAll(async () => {
   ctx = await createTestApp();
   [admin, manager, inspector, clerk, cashier] = await Promise.all(
-    ['SUPER_ADMIN', 'SITE_MANAGER', 'QUALITY_INSPECTOR', 'PURCHASING_CLERK', 'CASHIER_ACCOUNTANT'].map((r) => tokenFor(ctx, [r])),
+    [1, 2, 3, 4, 5].map(() => tokenFor(ctx, ['SUPER_ADMIN'])),
   ) as unknown as [Tok, Tok, Tok, Tok, Tok];
+  const { rows: readPerms } = await ctx.pool.query(`SELECT code FROM permissions WHERE code LIKE '%:read'`);
+  readOnly = await tokenFor(ctx, [await createRole(ctx.pool, readPerms.map((r) => r.code))]);
   const types = await api().get('/api/v1/coffee-types').set(bearer(clerk.token));
   coffeeTypeId = types.body.data.find((t: { code: string }) => t.code === 'RED_CHERRY').id;
   scaleId = await newScale();
@@ -89,8 +92,8 @@ describe('procurement end to end', () => {
 
     v = (await command(`/purchases/${v.id}/submit`, clerk, { version: v.version })).body.data;
     expect(v.status).toBe('PENDING_VERIFICATION');
-    const clerkVerify = await command(`/purchases/${v.id}/verify`, clerk, { version: v.version });
-    expect(clerkVerify.body.code).toBe('FORBIDDEN');
+    const noPermission = await command(`/purchases/${v.id}/verify`, readOnly, { version: v.version });
+    expect(noPermission.body.code).toBe('FORBIDDEN');
     v = (await command(`/purchases/${v.id}/verify`, inspector, { version: v.version })).body.data;
     expect(v).toMatchObject({ status: 'VERIFIED', verifiedById: inspector.userId });
     const stale = await command(`/purchases/${v.id}/approve`, manager, { version: v.version - 1 });
@@ -139,8 +142,8 @@ describe('procurement end to end', () => {
     await command(`/payments/${p.id}/approve`, manager);
     await command(`/payments/${p.id}/disburse`, cashier);
     expect((await command(`/payments/${p.id}/reverse`, manager, {})).status).toBe(400); // reason required
-    const clerkReverse = await command(`/payments/${p.id}/reverse`, cashier, { reason: 'wrong supplier' });
-    expect(clerkReverse.body.code).toBe('FORBIDDEN');
+    const noPermission = await command(`/payments/${p.id}/reverse`, readOnly, { reason: 'wrong supplier' });
+    expect(noPermission.body.code).toBe('FORBIDDEN');
     p = (await command(`/payments/${p.id}/reverse`, manager, { reason: 'Paid the wrong farmer' })).body.data;
     expect(p).toMatchObject({ status: 'REVERSED', reversalReason: 'Paid the wrong farmer' });
     const cash = await ctx.pool.query('SELECT direction, type, amount, reversal_of_id FROM cash_transactions WHERE payment_id = $1 ORDER BY created_at', [p.id]);
@@ -176,45 +179,23 @@ describe('procurement end to end', () => {
   });
 });
 
-describe('segregation of duties (§11.3)', () => {
-  it('verifier cannot be the creator / weighing clerk', async () => {
-    const both = await tokenFor(ctx, ['PURCHASING_CLERK', 'QUALITY_INSPECTOR']);
-    const insp = await inspection(await newSupplier());
-    let v = (await api().post('/api/v1/purchases').set(bearer(both.token)).send(voucherBody(insp.id))).body.data;
-    v = (await command(`/purchases/${v.id}/submit`, both, { version: v.version })).body.data;
-    const res = await command(`/purchases/${v.id}/verify`, both, { version: v.version });
-    expect(res.status).toBe(403);
-    expect(res.body).toMatchObject({ code: 'SEGREGATION_OF_DUTIES', details: { rule: 'PV_VERIFIER' } });
-  });
-
-  it('approver cannot be the verifier', async () => {
-    const both = await tokenFor(ctx, ['QUALITY_INSPECTOR', 'SITE_MANAGER']);
-    const insp = await inspection(await newSupplier());
-    let v = (await api().post('/api/v1/purchases').set(bearer(clerk.token)).send(voucherBody(insp.id))).body.data;
-    v = (await command(`/purchases/${v.id}/submit`, clerk, { version: v.version })).body.data;
-    v = (await command(`/purchases/${v.id}/verify`, both, { version: v.version })).body.data;
-    const res = await command(`/purchases/${v.id}/approve`, both, { version: v.version });
-    expect(res.body).toMatchObject({ code: 'SEGREGATION_OF_DUTIES', details: { rule: 'PV_APPROVER', conflictsWith: ['verifier'] } });
-  });
-
-  it('cashier cannot be the weighing clerk [MANUAL]', async () => {
-    const both = await tokenFor(ctx, ['PURCHASING_CLERK', 'CASHIER_ACCOUNTANT']);
-    const v = await approvedVoucher(both);
-    const res = await api().post('/api/v1/payments').set(bearer(both.token)).send({ voucherId: v.id, method: 'CASH' });
-    expect(res.body).toMatchObject({ code: 'SEGREGATION_OF_DUTIES', details: { rule: 'PV_CASHIER_NOT_WEIGHING_CLERK' } });
-  });
-
-  it('payment approver cannot be the paying cashier', async () => {
-    const both = await tokenFor(ctx, ['CASHIER_ACCOUNTANT', 'SITE_MANAGER']);
-    const v = await approvedVoucher();
-    const p = (await api().post('/api/v1/payments').set(bearer(both.token)).send({ voucherId: v.id, method: 'CASH' })).body.data;
-    const selfApprove = await command(`/payments/${p.id}/approve`, both);
-    expect(selfApprove.body).toMatchObject({ code: 'SEGREGATION_OF_DUTIES', details: { rule: 'PAYMENT_APPROVER' } });
-    // approved by someone else, the approver-cashier combination is still refused at disbursement
-    const other = await api().post('/api/v1/payments').set(bearer(cashier.token)).send({ voucherId: (await approvedVoucher()).id, method: 'CASH' });
-    await command(`/payments/${other.body.data.id}/approve`, both);
-    const disburse = await command(`/payments/${other.body.data.id}/disburse`, both);
-    expect(disburse.body.code).toBe('SEGREGATION_OF_DUTIES');
+describe('single super admin (no segregation of duties)', () => {
+  it('one person can create, verify, approve, pay and reverse the same voucher', async () => {
+    const insp = await inspection(await newSupplier(), admin);
+    let v = (await api().post('/api/v1/purchases').set(bearer(admin.token)).send(voucherBody(insp.id))).body.data;
+    for (const cmd of ['submit', 'verify', 'approve'] as const) {
+      const res = await command(`/purchases/${v.id}/${cmd}`, admin, { version: v.version });
+      expect(res.status).toBe(200);
+      v = res.body.data;
+    }
+    expect(v).toMatchObject({ status: 'APPROVED', createdById: admin.userId, weighingClerkId: admin.userId, verifiedById: admin.userId, approvedById: admin.userId });
+    let p = (await api().post('/api/v1/payments').set(bearer(admin.token)).send({ voucherId: v.id, method: 'CASH' })).body.data;
+    p = (await command(`/payments/${p.id}/approve`, admin)).body.data;
+    p = (await command(`/payments/${p.id}/disburse`, admin)).body.data;
+    expect(p).toMatchObject({ status: 'PAID', cashierId: admin.userId, approvedById: admin.userId });
+    const paid = (await api().get(`/api/v1/purchases/${v.id}`).set(bearer(admin.token))).body.data;
+    expect(paid).toMatchObject({ status: 'PAID', cashierId: admin.userId, lot: { currentStage: 'PURCHASED' } });
+    expect((await command(`/payments/${p.id}/reverse`, admin, { reason: 'Test reversal' })).body.data.status).toBe('REVERSED');
   });
 });
 
@@ -377,7 +358,7 @@ describe('quality', () => {
     } finally {
       await setSetting('purchase.lotCreationTrigger', 'ON_PAYMENT');
     }
-    const clerkHold = await api().post('/api/v1/quality/holds').set(bearer(clerk.token)).send({ lotNumber: lot.lotNumber, reason: 'Fermented smell' });
+    const clerkHold = await api().post('/api/v1/quality/holds').set(bearer(readOnly.token)).send({ lotNumber: lot.lotNumber, reason: 'Fermented smell' });
     expect(clerkHold.body.code).toBe('FORBIDDEN');
     const hold = await api().post('/api/v1/quality/holds').set(bearer(inspector.token)).send({ lotNumber: lot.lotNumber, reason: 'Fermented smell' });
     expect(hold.status).toBe(201);
@@ -451,7 +432,7 @@ describe('suppliers, equipment and cash', () => {
     await api().post('/api/v1/finance/cash').set(bearer(cashier.token)).send({ type: 'CASH_RETURN', amount: '250.50', description: 'Returned to bank' });
     const after = (await api().get('/api/v1/finance/cash/summary').set(bearer(cashier.token))).body.data.balance;
     expect(Number(after) - Number(before)).toBeCloseTo(99749.5, 2);
-    expect((await api().post('/api/v1/finance/cash').set(bearer(clerk.token)).send({ type: 'CASH_FUNDING', amount: '1', description: 'x y z' })).body.code).toBe('FORBIDDEN');
+    expect((await api().post('/api/v1/finance/cash').set(bearer(readOnly.token)).send({ type: 'CASH_FUNDING', amount: '1', description: 'x y z' })).body.code).toBe('FORBIDDEN');
     await expect(ctx.pool.query('UPDATE cash_transactions SET amount = 1 WHERE id = $1', [fund.body.data.id])).rejects.toMatchObject({ code: 'P0A01' });
   });
 });

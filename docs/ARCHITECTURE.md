@@ -260,6 +260,8 @@ Every FK used in lists, every `(entity, date)` pair used in reports (e.g. `purch
 
 ## 7. Role–permission matrix
 
+> **Current setup (decision of 2026-10-02):** the system runs with **one role, SUPER_ADMIN, which holds every permission**, and **segregation of duties has been removed** (service checks deleted; DB `ck_*_sod` constraints dropped by migration `0014_single_super_admin.sql`). The matrix below is the target design kept for reference: roles are added back only on request, by listing them in `backend/src/modules/access/catalog.ts`. Re-introducing segregation of duties would need new code and a new migration.
+
 Legend: **R** read · **C** create/record · **U** update · **S** submit · **V** verify · **A** approve · **P** pay/disburse · **X** cancel/void/reverse · **M** manage master data · — none. Scope notes in brackets.
 
 | Module / permission group | SUPER_ADMIN | SITE_MANAGER | QUALITY_INSPECTOR | PURCHASING_CLERK | CASHIER_ACCOUNTANT | PULPING_OPERATOR | DRYING_SUPERVISOR | STOREKEEPER | CAPITA | TEMP_WORKER | AUDITOR |
@@ -306,7 +308,7 @@ Notes:
 - Permissions are data (`permissions`, `role_permissions`), seeded from this matrix by `backend/src/modules/access/catalog.ts` (129 codes, 11 roles). The SUPER_ADMIN can adjust assignments (`PUT /roles/:id/permissions`, reason required, audited); re-running the seed never re-grants something an administrator removed. The SUPER_ADMIN role can never lose `user:*`/`role:*` (lock-out guard). Code checks **permission codes**, not role names.
 - Concrete codes follow `module:action`: `purchase:create`, `purchase:submit`, `purchase:verify`, `purchase:return`, `purchase:approve`, `purchase:cancel`, `purchase:void`, `payment:create`, `payment:approve`, `payment:disburse`, `payment:reverse`, `quality:inspect`, `quality:hold`, `quality:hold-release`, `scale:verify`, `drying:final-verify`, `srv:deliver`, `srv:receive`, `srv:approve`, `inventory:transfer-request`, `inventory:transfer-approve`, `inventory:adjust`, `inventory:adjust-approve`, `payroll:prepare`, `payroll:approve-supervisor`, `payroll:approve-cashier`, `payroll:pay`, `ca:verify`, `ca:close`, `settings:manage`, `settings:manage-system`, `auditlog:read`, `report:export`, `report:finance`, … The bracketed scopes of the matrix are separate codes: `…-own-group` (CAPITA), `…-self` (TEMP_WORKER), `…-assigned` (corrective actions).
 - Cells the matrix leaves implicit (assumptions, adjustable at runtime): returning a voucher to draft = `purchase:return` (QUALITY_INSPECTOR, SITE_MANAGER); reversing an inventory transaction = `inventory:reverse` (SITE_MANAGER); uploading documents = `file:upload` (every role except TEMP_WORKER); reading other people's documents = `file:read` (SUPER_ADMIN, SITE_MANAGER, AUDITOR); `settings:manage` covers business keys, `settings:manage-system` covers the `auth`, `numbering`, `notifications` and `station` categories.
-- **Segregation of duties applies to every role, including SUPER_ADMIN** (see §11.3). Holding two permissions never lets one user perform both halves of a controlled pair on the same record.
+- ~~Segregation of duties applies to every role, including SUPER_ADMIN~~ — **removed for now** (see the note at the top of §7 and §11.3).
 - TEMP_WORKER login is optional; most temporary workers will be represented only as `workers` rows.
 - The authorization matrix is tested automatically: every route × every role (§15).
 
@@ -449,7 +451,10 @@ A **QualityHold** on a lot blocks every forward transition of that lot (and its 
 | Capita ratio | warn when group size outside `workforce.workersPerCapitaMin..Max` (20–30) | [MANUAL: approx.] |
 | Moisture class | `< min` BELOW, `> max` ABOVE, else WITHIN | [MANUAL 10.5–11.5] |
 
-### 11.3 Segregation of duties (enforced for every role, incl. SUPER_ADMIN)
+### 11.3 Segregation of duties — REMOVED (2026-10-02)
+
+Not enforced: one SUPER_ADMIN may perform every step of a record. The table below is the original design, kept for when roles return.
+
 | Record | Rule |
 |---|---|
 | PurchaseVoucher | weighing clerk ≠ cashier [MANUAL]; verifier ∉ {creator, weighing clerk}; approver ∉ {creator, weighing clerk, verifier} |
@@ -520,7 +525,7 @@ Phase 1 delivers the relay, the `domain-events` consumer (logs events) and the h
 | Passwords | argon2id; rules from `auth.passwordPolicy` (PROVISIONAL: ≥ 10 chars, a letter, a digit, not containing the username); forced change on first login and after an admin reset (every other endpoint answers 403 `PASSWORD_CHANGE_REQUIRED`); lockout after `auth.maxFailedLogins` (5) for `auth.lockoutMinutes` (15); unknown usernames take the same time as wrong passwords. |
 | Tokens | Access JWT (HS256, `auth.accessTokenTtl` = 15 min, `sub`, `iss`, `jti`), held in browser memory only. Refresh token: random 256-bit, stored as SHA-256, httpOnly cookie scoped to `/api/v1/auth`, `auth.refreshTokenTtl` = 7 d, rotated on every use; presenting a rotated token revokes the whole family and is audited. Logout, password change, deactivation and admin reset revoke sessions. Status, roles and permissions are read from the DB on every request, so changes apply immediately. |
 | Cookies across Render hosts | `*.onrender.com` is on the public-suffix list, so a Static Site and a Web Service on onrender.com are cross-site: use `REFRESH_COOKIE_SAMESITE=none` + `REFRESH_COOKIE_SECURE=true`. With a custom domain (`app.example.com` + `api.example.com`) use `strict`. |
-| Authorization | Route registry: deny by default (`access` is mandatory; test asserts the public list), any-of permission codes, checked before validation. Scope and SoD policies in services; SoD also as DB CHECKs. |
+| Authorization | Route registry: deny by default (`access` is mandatory; test asserts the public list), any-of permission codes, checked before validation. Scope policies in services (SoD removed, see §11.3). |
 | Input | Zod strict schemas (unknown fields rejected), max lengths, enum checks, decimal-string patterns; JSON body limit 1 MB. All SQL parameterised; sort columns mapped through whitelists. |
 | Transport & headers | TLS terminated by Render; `helmet` (HSTS, noSniff, frameguard, …); CORS allowlist from `CORS_ORIGINS` with credentials; `trust proxy` = 1 on Render. Static Site security headers set in `render.yaml`. |
 | Rate limiting | `express-rate-limit`: 600 req/min per IP on the API, 20/min on `/auth/*`. In-memory store (single instance); switch to a PostgreSQL-backed store if the API is scaled horizontally. |
@@ -537,7 +542,7 @@ Phase 1 delivers the relay, the `domain-events` consumer (logs events) and the h
 |---|---|---|
 | Unit | Jest (ts-jest, ESM) | Every `domain/` function: purchase totals & rounding, quality rule evaluation & percent sum, scale verification, moisture classification, reconciliation, outturn, payroll, inventory ledger math, state machines (every allowed and forbidden transition), SoD policy, permission catalog vs matrix, settings registry, numbering, decimal helpers. |
 | Integration | Jest + Supertest against a **real PostgreSQL** database that global setup drops, re-creates, migrates and seeds on every run | Auth flows (lockout, rotation, reuse detection, forced change), users/roles, settings, audit chain (concurrency + tamper detection), files, idempotency, outbox → pg-boss, sequences under concurrency, DB constraints/triggers. Later: Purchase → Payment → Lot, Lot → … → SRV → Inventory; rollback on injected failure; two payments for one voucher in parallel → exactly one succeeds; parallel stock issues never go negative. |
-| Authorization | Generated matrix test: reads every registered route's `access` and the seeded role_permissions, then calls every endpoint as every role asserting 403 exactly where the matrix says so. Plus 401 for every non-public route without a token, and a fixed list of public routes. SoD tests per workflow. |
+| Authorization | Generated matrix test: reads every registered route's `access` and the seeded role_permissions, then calls every endpoint as every role asserting 403 exactly where the matrix says so. Plus 401 for every non-public route without a token, and a fixed list of public routes. Runs as SUPER_ADMIN plus a no-permission and a read-only test role. |
 | E2E | Supertest "station day" scenario (register supplier → … → SRV above 11.5 % blocked → dry further → SRV approved → bin card → transfer → release). Frontend E2E with Playwright added in Phase 8. |
 | Database | Migrations apply on an empty database in every test run and in CI; checksum guard; constraint/trigger tests. |
 | Frontend | Vitest + Testing Library: permission-gated rendering, navigation by role, formatting, API error handling. |

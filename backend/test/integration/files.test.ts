@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { bearer, createTestApp, tokenFor, type TestContext } from '../helpers/app.js';
+import { bearer, createRole, createTestApp, tokenFor, type TestContext } from '../helpers/app.js';
 
 let ctx: TestContext;
 beforeAll(async () => { ctx = await createTestApp(); });
@@ -9,7 +9,7 @@ const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a
 
 describe('files', () => {
   it('stores an image, returns metadata with sha256, and lets the uploader download it', async () => {
-    const clerk = await tokenFor(ctx, ['PURCHASING_CLERK']);
+    const clerk = await tokenFor(ctx, [await createRole(ctx.pool, ['file:upload'])]);
     const up = await request(ctx.app).post('/api/v1/files').set(bearer(clerk.token))
       .field('category', 'SUPPLIER_ID').attach('file', PNG, { filename: 'id-card.png', contentType: 'image/png' });
     expect(up.status).toBe(201);
@@ -23,15 +23,15 @@ describe('files', () => {
     expect(Buffer.compare(dl.body as Buffer, PNG)).toBe(0);
     expect(dl.headers['content-disposition']).toMatch(/attachment; filename="id-card.png"/);
 
-    // another uploader without file:read cannot read it; an auditor (file:read) can
-    const other = await tokenFor(ctx, ['PULPING_OPERATOR']);
+    // another uploader without file:read cannot read it; a holder of file:read can
+    const other = await tokenFor(ctx, [await createRole(ctx.pool, ['file:upload'])]);
     expect((await request(ctx.app).get(`/api/v1/files/${up.body.data.id}`).set(bearer(other.token))).status).toBe(403);
-    const auditor = await tokenFor(ctx, ['AUDITOR']);
+    const auditor = await tokenFor(ctx, [await createRole(ctx.pool, ['file:read'])]);
     expect((await request(ctx.app).get(`/api/v1/files/${up.body.data.id}`).set(bearer(auditor.token))).status).toBe(200);
   });
 
   it('rejects disguised files and missing files', async () => {
-    const clerk = await tokenFor(ctx, ['PURCHASING_CLERK']);
+    const clerk = await tokenFor(ctx, [await createRole(ctx.pool, ['file:upload'])]);
     const html = await request(ctx.app).post('/api/v1/files').set(bearer(clerk.token))
       .field('category', 'OTHER').attach('file', Buffer.from('<script>alert(1)</script>'), { filename: 'photo.png', contentType: 'image/png' });
     expect(html.status).toBe(400);
@@ -39,8 +39,8 @@ describe('files', () => {
     expect(none.status).toBe(400);
   });
 
-  it('TEMP_WORKER cannot upload', async () => {
-    const w = await tokenFor(ctx, ['TEMP_WORKER']);
+  it('a user without file:upload cannot upload', async () => {
+    const w = await tokenFor(ctx, [await createRole(ctx.pool, [])]);
     const res = await request(ctx.app).post('/api/v1/files').set(bearer(w.token)).field('category', 'OTHER').attach('file', PNG, 'a.png');
     expect(res.status).toBe(403);
   });

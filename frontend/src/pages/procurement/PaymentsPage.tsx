@@ -162,7 +162,7 @@ export function PaymentsPage() {
   const [tab, setTab] = useState<'payments' | 'cash'>('payments');
   return (
     <>
-      <PageHeader title="Payments" subtitle="One payment per approved voucher: prepare → approve → pay out. Approver and cashier must be different people." />
+      <PageHeader title="Payments" subtitle="One payment per approved voucher: prepare → approve → pay out." />
       {can('cash:read') && (
         <Box sx={{ mb: 2 }}>
           <Tabs value={tab} onChange={(_, v) => setTab(v)}><Tab value="payments" label="Supplier payments" /><Tab value="cash" label="Cash ledger" /></Tabs>

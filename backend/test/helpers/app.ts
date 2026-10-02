@@ -44,6 +44,21 @@ function cachedHash(pw: string): Promise<string> {
 
 export const DEFAULT_PASSWORD = 'Password12345';
 
+/**
+ * Creates a role that holds exactly `permissions` and returns its code. The
+ * catalog only has SUPER_ADMIN (every permission), so tests use these roles to
+ * check what a user WITHOUT a permission gets.
+ */
+export async function createRole(pool: pg.Pool, permissions: string[]): Promise<string> {
+  const code = `TEST_${uniqueName('R').toUpperCase()}`;
+  const { rows } = await pool.query(`INSERT INTO roles (code, name, is_system) VALUES ($1, $1, false) RETURNING id`, [code]);
+  await pool.query(
+    `INSERT INTO role_permissions (role_id, permission_id) SELECT $1, id FROM permissions WHERE code = ANY($2)`,
+    [rows[0].id, permissions],
+  );
+  return code;
+}
+
 /** Inserts a user directly (fast path for tests). */
 export async function createUser(
   pool: pg.Pool,

@@ -22,7 +22,7 @@ describe('auth', () => {
   });
 
   it('sets an httpOnly refresh cookie scoped to /api/v1/auth', async () => {
-    const u = await createUser(ctx.pool, ['AUDITOR']);
+    const u = await createUser(ctx.pool, ['SUPER_ADMIN']);
     const res = await request(ctx.app).post('/api/v1/auth/login').send({ username: u.username.toUpperCase(), password: u.password });
     expect(res.status).toBe(200);
     const raw = (res.headers['set-cookie'] as unknown as string[])[0]!;
@@ -61,7 +61,7 @@ describe('auth', () => {
   });
 
   it('change-password enforces the policy and clears the flag', async () => {
-    const u = await createUser(ctx.pool, ['AUDITOR'], { mustChangePassword: true });
+    const u = await createUser(ctx.pool, ['SUPER_ADMIN'], { mustChangePassword: true });
     const { token } = await login(ctx.app, u.username, u.password);
     const weak = await request(ctx.app).post('/api/v1/auth/change-password').set(bearer(token)).send({ currentPassword: u.password, newPassword: 'short' });
     expect(weak.status).toBe(400);
@@ -108,7 +108,7 @@ describe('auth', () => {
   });
 
   it('a deactivated user loses access immediately (permissions are read per request)', async () => {
-    const u = await createUser(ctx.pool, ['AUDITOR']);
+    const u = await createUser(ctx.pool, ['SUPER_ADMIN']);
     const { token } = await login(ctx.app, u.username, u.password);
     expect((await request(ctx.app).get('/api/v1/users').set(bearer(token))).status).toBe(200);
     await ctx.pool.query(`UPDATE users SET status = 'INACTIVE' WHERE id = $1`, [u.id]);

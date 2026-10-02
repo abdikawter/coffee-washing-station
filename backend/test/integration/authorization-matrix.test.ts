@@ -7,15 +7,19 @@
 import request from 'supertest';
 import { ROLE_CODES } from '../../src/modules/access/catalog.js';
 import type { RouteRecord } from '../../src/http/types.js';
-import { bearer, createTestApp, tokenFor, type TestContext } from '../helpers/app.js';
+import { bearer, createRole, createTestApp, tokenFor, type TestContext } from '../helpers/app.js';
 
 let ctx: TestContext;
 const tokens = new Map<string, string>();
 const rolePerms = new Map<string, Set<string>>();
+/** The catalog roles (SUPER_ADMIN only for now) plus two test roles so every route is also checked for denial. */
+const matrixRoles: string[] = [];
 
 beforeAll(async () => {
   ctx = await createTestApp();
-  for (const role of ROLE_CODES) tokens.set(role, (await tokenFor(ctx, [role])).token);
+  const { rows: readPerms } = await ctx.pool.query(`SELECT code FROM permissions WHERE code LIKE '%:read'`);
+  matrixRoles.push(...ROLE_CODES, await createRole(ctx.pool, []), await createRole(ctx.pool, readPerms.map((r) => r.code)));
+  for (const role of matrixRoles) tokens.set(role, (await tokenFor(ctx, [role])).token);
   const { rows } = await ctx.pool.query(
     `SELECT r.code, COALESCE(array_agg(p.code) FILTER (WHERE p.code IS NOT NULL), '{}') AS perms
        FROM roles r LEFT JOIN role_permissions rp ON rp.role_id = r.id LEFT JOIN permissions p ON p.id = rp.permission_id GROUP BY r.code`,
@@ -66,7 +70,7 @@ describe('role × route matrix', () => {
     const mismatches: string[] = [];
     let checked = 0;
     for (const r of ctx.api.routes.filter((x) => !('public' in x.access))) {
-      for (const role of ROLE_CODES) {
+      for (const role of matrixRoles) {
         const perms = rolePerms.get(role)!;
         const allowed = 'authenticated' in r.access || [(r.access as { permission: string | string[] }).permission].flat().some((p) => perms.has(p));
         const res = await call(r, tokens.get(role));
