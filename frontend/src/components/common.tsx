@@ -1,6 +1,7 @@
-import { Alert, Box, Chip, CircularProgress, Stack, Typography, type ChipProps } from '@mui/material';
+import { Alert, Box, Chip, CircularProgress, Stack, Typography } from '@mui/material';
 import type { ReactNode } from 'react';
 import { errorMessage } from '../api/client';
+import { statusTone, toneColor, type StatusDomain } from '../theme';
 
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
   return (
@@ -28,20 +29,10 @@ export function Loading({ label = 'Loading…' }: { label?: string }) {
   );
 }
 
-const STATUS_COLORS: Record<string, ChipProps['color']> = {
-  ACTIVE: 'success', CONFIRMED: 'success', MANUAL: 'info', PROVISIONAL: 'warning', UNSET: 'error',
-  INACTIVE: 'default', LOCKED: 'error', SUSPENDED: 'warning',
-  // procurement
-  DRAFT: 'default', PENDING_VERIFICATION: 'warning', VERIFIED: 'info', APPROVED: 'primary', PAID: 'success',
-  CANCELLED: 'default', VOIDED: 'error', PENDING_APPROVAL: 'warning', REJECTED: 'error', REVERSED: 'error',
-  ACCEPTED: 'success', PASS: 'success', FAIL: 'error', WARN: 'warning', RELEASED: 'default', ON_HOLD: 'error', CLOSED: 'default',
-  OPERATIONAL: 'success', UNDER_MAINTENANCE: 'warning', OUT_OF_SERVICE: 'error', DECOMMISSIONED: 'default',
-};
-
-const OUTLINED = new Set(['INACTIVE', 'DRAFT', 'CANCELLED', 'RELEASED', 'CLOSED', 'DECOMMISSIONED']);
-
-export function StatusChip({ status, label }: { status: string; label?: string }) {
-  return <Chip size="small" label={label ?? status} color={STATUS_COLORS[status] ?? 'default'} variant={OUTLINED.has(status) ? 'outlined' : 'filled'} />;
+/** Status colours come from theme/status.ts (fixed meaning everywhere — spec §2.1). Restyled in Phase 3B step 2. */
+export function StatusChip({ status, label, domain }: { status: string; label?: string; domain?: StatusDomain }) {
+  const tone = statusTone(status, domain);
+  return <Chip size="small" label={label ?? status} color={toneColor(tone)} variant={tone === 'neutral' ? 'outlined' : 'filled'} />;
 }
 
 /** Label + value pair used on detail screens. */

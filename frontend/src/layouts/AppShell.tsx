@@ -1,7 +1,10 @@
+import ContrastIcon from '@mui/icons-material/Contrast';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
+import LightModeIcon from '@mui/icons-material/LightMode';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MenuIcon from '@mui/icons-material/Menu';
 import {
-  Alert, AppBar, Box, Button, Chip, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText,
+  Alert, AppBar, Box, Button, Chip, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem,
   ListSubheader, Toolbar, Tooltip, Typography, useMediaQuery, useTheme,
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
@@ -10,6 +13,7 @@ import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { settingsApi } from '../api/endpoints';
 import { useAuth } from '../auth/useAuth';
 import { DELIVERED_PHASE, visibleNav, type NavItem } from '../navigation';
+import { useColorMode, type ColorMode } from '../theme';
 import { humanize } from '../utils/format';
 
 const DRAWER_WIDTH = 264;
@@ -25,6 +29,33 @@ function UnconfirmedSettingsBanner() {
       action={can(['settings:manage', 'settings:manage-system']) ? <Button component={RouterLink} to="/admin/settings?filter=unconfirmed" color="inherit" size="small">Review</Button> : undefined}>
       {data.length} setting{data.length === 1 ? '' : 's'} still need confirmation by the site manager (provisional or not yet set).
     </Alert>
+  );
+}
+
+const MODES: { mode: ColorMode; label: string; icon: ReactNode }[] = [
+  { mode: 'light', label: 'Light', icon: <LightModeIcon fontSize="small" /> },
+  { mode: 'dark', label: 'Dark', icon: <DarkModeIcon fontSize="small" /> },
+  { mode: 'contrast', label: 'High contrast (outdoor)', icon: <ContrastIcon fontSize="small" /> },
+];
+
+/** Light / dark / high-contrast switch (moves into the user menu with the new app shell). */
+function ThemeSwitch() {
+  const { mode, setMode } = useColorMode();
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const current = MODES.find((m) => m.mode === mode) ?? MODES[0]!;
+  return (
+    <>
+      <Tooltip title={`Theme: ${current.label}`}>
+        <IconButton color="inherit" aria-label="Change theme" onClick={(e) => setAnchor(e.currentTarget)}>{current.icon}</IconButton>
+      </Tooltip>
+      <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
+        {MODES.map((m) => (
+          <MenuItem key={m.mode} selected={m.mode === mode} onClick={() => { setMode(m.mode); setAnchor(null); }}>
+            <ListItemIcon>{m.icon}</ListItemIcon>{m.label}
+          </MenuItem>
+        ))}
+      </Menu>
+    </>
   );
 }
 
@@ -74,6 +105,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2 }}>{user?.fullName}</Typography>
             <Typography variant="caption" sx={{ opacity: 0.85 }}>{user?.roles.map(humanize).join(', ')}</Typography>
           </Box>
+          <ThemeSwitch />
           <Tooltip title="Sign out">
             <IconButton color="inherit" aria-label="Sign out" onClick={async () => { await logout(); navigate('/login'); }}>
               <LogoutIcon />
