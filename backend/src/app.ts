@@ -18,7 +18,9 @@ import { registerEquipmentRoutes } from './modules/equipment/equipment.routes.js
 import { registerFileRoutes } from './modules/files/files.routes.js';
 import { registerFinanceRoutes } from './modules/finance/finance.routes.js';
 import { registerHealthRoutes } from './modules/health/health.routes.js';
+import { registerLotRoutes } from './modules/lots/lots.routes.js';
 import { registerPaymentRoutes } from './modules/payments/payments.routes.js';
+import { registerProcessingRoutes } from './modules/processing/processing.routes.js';
 import { registerPurchasingRoutes } from './modules/purchasing/purchasing.routes.js';
 import { registerQualityRoutes } from './modules/quality/quality.routes.js';
 import { registerSettingsRoutes } from './modules/settings/settings.routes.js';
@@ -94,6 +96,9 @@ export function createApp(c: Container, opts: AppOptions = {}): { app: Express; 
   registerPurchasingRoutes(api, c.purchasing, c.settings);
   registerPaymentRoutes(api, c.payments);
   registerFinanceRoutes(api, pool, c.cash, c.audit);
+  // Phase 3 — Wet processing
+  registerLotRoutes(api, c.lotsQuery);
+  registerProcessingRoutes(api, c.processing);
   opts.extraRoutes?.(api);
 
   app.use(API_PREFIX, api.router);

@@ -13,7 +13,14 @@ import { RolesService } from './modules/access/roles.service.js';
 import { AuthService } from './modules/auth/auth.service.js';
 import { EquipmentService } from './modules/equipment/equipment.service.js';
 import { ScalesService } from './modules/equipment/scales.service.js';
+import { LotsQueryService } from './modules/lots/lots.service.js';
 import { PaymentsService } from './modules/payments/payments.service.js';
+import { FermentationService } from './modules/processing/fermentation.service.js';
+import { HopperService } from './modules/processing/hopper.service.js';
+import { ProcessingEquipmentService } from './modules/processing/processing-equipment.service.js';
+import type { ProcessingServices } from './modules/processing/processing.routes.js';
+import { PulpingService } from './modules/processing/pulping.service.js';
+import { WashingGradingService } from './modules/processing/washing-grading.service.js';
 import { PurchasingService } from './modules/purchasing/purchasing.service.js';
 import { HoldsService } from './modules/quality/holds.service.js';
 import { QualityService } from './modules/quality/quality.service.js';
@@ -45,6 +52,8 @@ export interface Container {
   scales: ScalesService;
   purchasing: PurchasingService;
   payments: PaymentsService;
+  lotsQuery: LotsQueryService;
+  processing: ProcessingServices;
 }
 
 export function createStorage(env: Env): StorageAdapter {
@@ -68,7 +77,7 @@ export function createContainer(env: Env, pool: pg.Pool, logger: Logger, storage
   const outbox = new OutboxService();
   const cash = new CashLedgerService(sequences);
   const lots = new LotService(sequences, settings);
-  const correctiveActions = new CorrectiveActionsService(sequences, settings, audit);
+  const correctiveActions = new CorrectiveActionsService(sequences, settings, audit, outbox);
   const auth = new AuthService(pool, settings, audit, env.JWT_ACCESS_SECRET, env.JWT_ISSUER);
   const equipment = new EquipmentService(pool, audit);
   const scales = new ScalesService(pool, audit, settings, equipment, correctiveActions, outbox);
@@ -96,5 +105,13 @@ export function createContainer(env: Env, pool: pg.Pool, logger: Logger, storage
     scales,
     purchasing,
     payments: new PaymentsService(pool, audit, settings, sequences, cash, purchasing, lots, outbox),
+    lotsQuery: new LotsQueryService(pool, lots),
+    processing: {
+      units: new ProcessingEquipmentService(pool, audit, equipment),
+      hopper: new HopperService(pool, audit, settings, lots, correctiveActions, outbox),
+      pulping: new PulpingService(pool, audit, settings, lots, correctiveActions, outbox),
+      fermentation: new FermentationService(pool, audit, settings, sequences, lots, correctiveActions, outbox),
+      washing: new WashingGradingService(pool, audit, settings, lots, outbox),
+    },
   };
 }

@@ -8,6 +8,9 @@ export const QUEUES = {
   DOMAIN_EVENTS: 'domain-events',
   MAINTENANCE_PURGE: 'maintenance.purge-expired',
   CALIBRATION_DUE: 'calibration-due',
+  FERMENTATION_MONITOR: 'fermentation-monitor',
+  HOPPER_RECONCILIATION: 'hopper-reconciliation',
+  MAINTENANCE_DUE: 'maintenance-due',
 } as const;
 
 /**

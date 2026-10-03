@@ -97,7 +97,8 @@ describe('transactional outbox → pg-boss', () => {
     const sent: string[] = [];
     const fake: TransactionalQueue = { sendInTx: async (_tx, _q, data) => { sent.push((data as { outboxId: string }).outboxId); } };
     const relay = new OutboxRelay(ctx.pool, fake, ctx.c.logger);
-    await relay.relayOnce();
+    // Drain: other test files leave PENDING events, and the relay takes the oldest first.
+    while ((await relay.relayOnce()) > 0) { /* next batch */ }
     await relay.relayOnce();
     expect(sent.filter((s) => s === id)).toHaveLength(1);
     const row = await ctx.pool.query('SELECT status, processed_at FROM outbox_events WHERE id = $1', [id]);
@@ -118,7 +119,8 @@ describe('transactional outbox → pg-boss', () => {
     await queue.start();
     try {
       const id = await withTransaction(ctx.pool, (tx) => ctx.c.outbox.emit(tx, { eventType: 'test.pgboss', aggregate: 'Probe', aggregateId, payload: {} }));
-      await new OutboxRelay(ctx.pool, queue, ctx.c.logger).relayOnce();
+      const relay = new OutboxRelay(ctx.pool, queue, ctx.c.logger);
+      while ((await relay.relayOnce()) > 0) { /* drain older events too */ }
       const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
       const jobs = await pool.query(`SELECT data FROM pgboss.job WHERE name = 'domain-events' AND data->>'outboxId' = $1`, [id]);
       await pool.end();

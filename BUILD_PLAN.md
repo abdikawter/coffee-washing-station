@@ -11,8 +11,8 @@
 | 0 | Local setup | Every developer can run, test and push the project | ✅ |
 | 1 | Foundation | Auth, users & roles, settings, audit log, files, jobs, full database, app shell | ✅ |
 | 2 | Procurement | Suppliers → quality → scales → purchase voucher → payment → lot | ✅ |
-| 3 | Wet processing | Lots & events, hopper/flotation, reconciliation, pulping, fermentation, washing, grading | 🔜 |
-| 4 | Drying | Beds, batches, raking, moisture, defects, final verification, mobile screens | ⬜ |
+| 3 | Wet processing | Lots & events, hopper/flotation, reconciliation, pulping, fermentation, washing, grading | ✅ |
+| 4 | Drying | Beds, batches, raking, moisture, defects, final verification, mobile screens | 🔜 |
 | 5 | Warehouse & traceability | SRV, inventory ledger, bin cards, transfers, adjustments, lot passport, QR | ⬜ |
 | 6 | Workforce | Workers, groups/capitas, attendance, payroll, rations/SIV | ⬜ |
 | 7 | Controls | Expenses, cash summaries, audits, corrective actions, notifications, approval inbox | ⬜ |
@@ -150,7 +150,7 @@ Each phase ends only when its **exit gate** (bottom of each phase + the common g
 
 ---
 
-## Phase 3 — Wet processing 🔜
+## Phase 3 — Wet processing ✅
 
 **Goal:** track each lot from hopper to grade lots, with reconciliation.
 
@@ -177,9 +177,29 @@ Each phase ends only when its **exit gate** (bottom of each phase + the common g
 
 **Exit gate:** integration Lot → hopper → flotation → pulping → fermentation → washing → grading (child lots, weights conserved); hold blocks every step; tank double-booking impossible; reconciliation flags discrepancies.
 
+**Delivered**
+- **No new migration** — all Phase 3 tables, the one-active-batch-per-tank index and the output ≤ input checks already existed (0005, 0011).
+- **Domain (pure, unit-tested):** `core/lots/lot-stage.ts` (stage machine; only ACTIVE lots move), `processing/domain/wet-rules.ts` (flotation balance, reconciliation, machine check, fermentation window, grading limit, outturn %; tolerances are compared on exact values and rounded only for display).
+- **Shared services:** `LotService.lockForStep()` + `advance()` — the only way to change `lots.current_stage` (checks stage, status and holds on the lot and its ancestors, appends the stage event); `CorrectiveActionsService.raiseOrRecommend()` following `controls.correctiveActionMode`.
+- **Modules:** `lots` (list, board, detail, timeline incl. ancestors, outturn), `processing` (hoppers / pulping machines / tanks registry, hopper intake + flotation, reconciliation run / review, pulper inspections, pulping, fermentation start / measure / complete, washing, grading). 23 new endpoints.
+- **Jobs:** `fermentation-monitor` (every 5 min), `hopper-reconciliation` (daily at `hopper.reconciliationRunTime`), `maintenance-due` (daily) — they log until notifications arrive in Phase 7.
+- **Frontend:** Lots (list), lot page (status, grade lots, outturn bars, timeline), Wet processing (stage board with the next-step action on each lot card, fermentation tank cards with elapsed hours and window state, pulper daily checks, reconciliation run / detail / review, setup of hoppers, pulpers and tanks), dashboard card "lots in wet processing".
+
+**Decisions taken while building (reversible)**
+- Floaters are recorded as a quantity only (open question 7); sinkers continue and become the lot weight.
+- Reconciliation groups lots by hopper intake day (station timezone). A day is DISCREPANCY when the day total **or any single lot** is out of tolerance. Re-running replaces the figures until the day is REVIEWED; only a new discrepancy raises / recommends a CA. The nightly job only signals (no CA without a user).
+- Corrective actions for flotation imbalance, reconciliation discrepancy, pulping without a passing inspection (WARN policy) and overdue fermentation follow `controls.correctiveActionMode`: RECOMMEND (default) emits `corrective-action.recommended`, AUTO_CREATE opens the CA.
+- Pulping can be recorded in one step (with output) or opened and completed later; fermentation needs a completed run. Tank capacity is a hard limit (422); hopper capacity only warns.
+- Fermentation expected duration defaults to `fermentation.minHours` and must lie within the window; batches cannot be cancelled yet.
+- Grading: child lots `<lot>-<grade>` (format `numbering.formats.LOT_CHILD`) keep the root cherry weight; the parent becomes SPLIT and leaves the board; a grade lot timeline shows its parent history first.
+- Changing `hopper.reconciliationRunTime` takes effect at the next worker start.
+- Outbox relay tests now drain the queue (they depended on how many events other test files left pending).
+
+**Exit (met):** 142 backend tests (incl. the full wet-processing scenario, stage order, holds at intake and pulping, BLOCK/WARN pulper policy, parallel tank booking, flotation CA in both modes, overdue fermentation, reconciliation run / review / lock) + 15 frontend tests green; typecheck, lint, both builds, OpenAPI (90 paths) pass; server + worker start.
+
 ---
 
-## Phase 4 — Drying ⬜
+## Phase 4 — Drying 🔜
 
 **Goal:** control drying beds and moisture until coffee is fit for the warehouse.
 

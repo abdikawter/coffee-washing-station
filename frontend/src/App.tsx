@@ -25,6 +25,9 @@ const PurchasesPage = page(() => import('./pages/procurement/PurchasesPage'), 'P
 const NewVoucherPage = page(() => import('./pages/procurement/NewVoucherPage'), 'NewVoucherPage');
 const VoucherDetailPage = page(() => import('./pages/procurement/VoucherDetailPage'), 'VoucherDetailPage');
 const PaymentsPage = page(() => import('./pages/procurement/PaymentsPage'), 'PaymentsPage');
+const LotsPage = page(() => import('./pages/processing/LotsPage'), 'LotsPage');
+const LotDetailPage = page(() => import('./pages/processing/LotDetailPage'), 'LotDetailPage');
+const ProcessingPage = page(() => import('./pages/processing/ProcessingPage'), 'ProcessingPage');
 
 /** Pages delivered so far, keyed by navigation path; other nav items show "coming in phase N". */
 const PAGES: Record<string, React.ReactElement> = {
@@ -35,6 +38,8 @@ const PAGES: Record<string, React.ReactElement> = {
   '/equipment': <EquipmentPage />,
   '/purchases': <PurchasesPage />,
   '/payments': <PaymentsPage />,
+  '/lots': <LotsPage />,
+  '/processing': <ProcessingPage />,
   '/admin/users': <UsersPage />,
   '/admin/roles': <RolesPage />,
   '/admin/settings': <SettingsPage />,
@@ -45,6 +50,7 @@ const PAGES: Record<string, React.ReactElement> = {
 const EXTRA_ROUTES: { path: string; permission: string[]; element: React.ReactElement }[] = [
   { path: '/purchases/new', permission: ['purchase:create'], element: <NewVoucherPage /> },
   { path: '/purchases/:id', permission: ['purchase:read'], element: <VoucherDetailPage /> },
+  { path: '/lots/:id', permission: ['lot:read', 'lot:lookup'], element: <LotDetailPage /> },
 ];
 
 function Protected({ permission, children }: { permission?: string[]; children: React.ReactElement }) {

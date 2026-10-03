@@ -4,15 +4,28 @@ import { businessDate, randomToken } from '../../common/util.js';
 import type { SequenceService } from '../sequences/sequence.service.js';
 import type { SettingsService } from '../settings/settings.service.js';
 
-export type LotStage =
-  | 'PURCHASED' | 'HOPPER' | 'FLOTATION' | 'PULPING' | 'FERMENTATION' | 'WASHING' | 'GRADING'
-  | 'DRYING' | 'FINAL_MOISTURE_VERIFIED' | 'WAREHOUSE' | 'RELEASED';
+import { assertLotMovable, assertStageTransition, type LotStage, type LotStatus } from './lot-stage.js';
+
+export type { LotStage } from './lot-stage.js';
 
 export type LotEventType =
   | 'PURCHASED' | 'HOPPER_RECEIVED' | 'FLOTATION_COMPLETED' | 'PULPED' | 'FERMENTATION_STARTED' | 'FERMENTATION_COMPLETED'
   | 'WASHED' | 'GRADED' | 'LOT_SPLIT' | 'DRYING_STARTED' | 'MOISTURE_CHECK' | 'DEFECT_RECORDED' | 'DRYING_COMPLETED'
   | 'FINAL_MOISTURE_VERIFIED' | 'WAREHOUSE_RECEIVED' | 'TRANSFERRED' | 'INVENTORY_ADJUSTED' | 'RELEASED'
   | 'QUALITY_HOLD_PLACED' | 'QUALITY_HOLD_RELEASED';
+
+export interface LockedLot {
+  id: string;
+  lotNumber: string;
+  type: 'PURCHASE' | 'GRADE_SPLIT' | 'SPLIT';
+  status: LotStatus;
+  currentStage: LotStage;
+  currentWeightKg: string;
+  originalCherryWeightKg: string;
+  supplierId: string | null;
+  parentLotId: string | null;
+  version: number;
+}
 
 export interface LotEventInput {
   lotId: string;
@@ -81,6 +94,57 @@ export class LotService {
       refType: 'PurchaseVoucher', refId: voucher.id, payload: { voucherNo: voucher.voucherNo },
     });
     return lot;
+  }
+
+  /**
+   * Locks a lot for a processing step and checks it can take that step: it exists,
+   * is ACTIVE, has no active hold (on itself or an ancestor) and sits at `expectedStage`.
+   */
+  async lockForStep(tx: pg.PoolClient, lotId: string, expectedStage: LotStage): Promise<LockedLot> {
+    const { rows } = await tx.query(
+      `SELECT id, lot_number, type, status, current_stage, current_weight_kg, original_cherry_weight_kg, supplier_id, parent_lot_id, version
+         FROM lots WHERE id = $1 FOR UPDATE`,
+      [lotId],
+    );
+    const r = rows[0];
+    if (!r) throw new NotFoundError('Lot', lotId);
+    await this.assertNotOnHold(tx, lotId);
+    assertLotMovable(r.status);
+    if (r.current_stage !== expectedStage) {
+      throw new BusinessRuleError('LOT_STAGE_INVALID', `Lot ${r.lot_number} is at ${r.current_stage}, expected ${expectedStage}`, {
+        currentStage: r.current_stage, expectedStage,
+      });
+    }
+    return {
+      id: r.id, lotNumber: r.lot_number, type: r.type, status: r.status, currentStage: r.current_stage,
+      currentWeightKg: r.current_weight_kg, originalCherryWeightKg: r.original_cherry_weight_kg,
+      supplierId: r.supplier_id, parentLotId: r.parent_lot_id, version: r.version,
+    };
+  }
+
+  /**
+   * The ONLY way to change lots.current_stage (ARCHITECTURE.md §2.2 "LotEventService"):
+   * validates the one-step-forward transition, re-checks holds, updates the stage
+   * (and weight / location when given) and appends the stage event — all in `tx`.
+   */
+  async advance(
+    tx: pg.PoolClient,
+    lot: LockedLot,
+    to: LotStage,
+    e: Omit<LotEventInput, 'lotId' | 'stage'> & { newWeightKg?: string | null },
+  ): Promise<{ eventId: string; sequence: number }> {
+    assertStageTransition(lot.currentStage, to);
+    assertLotMovable(lot.status);
+    await this.assertNotOnHold(tx, lot.id);
+    await tx.query(
+      `UPDATE lots SET current_stage = $2, current_weight_kg = COALESCE($3, current_weight_kg),
+                       current_location = COALESCE($4, current_location) WHERE id = $1`,
+      [lot.id, to, e.newWeightKg ?? null, e.location ?? null],
+    );
+    const ev = await this.appendEvent(tx, { ...e, lotId: lot.id, stage: to });
+    lot.currentStage = to;
+    if (e.newWeightKg) lot.currentWeightKg = e.newWeightKg;
+    return { eventId: ev.id, sequence: ev.sequence };
   }
 
   /** The active quality hold on this lot or any ancestor (a hold on a parent also stops its children). */

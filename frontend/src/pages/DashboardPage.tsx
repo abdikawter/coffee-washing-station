@@ -2,6 +2,7 @@ import { Card, CardActionArea, CardContent, Chip, Grid, Stack, Typography } from
 import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
+import { lotsApi } from '../api/processing';
 import { paymentsApi, purchasesApi, scalesApi } from '../api/procurement';
 import { useAuth } from '../auth/useAuth';
 import { PageHeader } from '../components/common';
@@ -31,9 +32,12 @@ function ProcurementKpis() {
   const toApprove = useQuery({ queryKey: ['payments', 'count', 'PENDING_APPROVAL'], queryFn: () => paymentsApi.list({ page: 1, pageSize: 1, status: 'PENDING_APPROVAL' }), enabled: can('payment:read') });
   const toPay = useQuery({ queryKey: ['payments', 'count', 'APPROVED'], queryFn: () => paymentsApi.list({ page: 1, pageSize: 1, status: 'APPROVED' }), enabled: can('payment:read') });
   const scales = useQuery({ queryKey: ['scales'], queryFn: scalesApi.list, enabled: can('scale:read') });
+  const board = useQuery({ queryKey: ['lots', 'board'], queryFn: lotsApi.board, enabled: can('lot:read'), refetchInterval: 60_000 });
+  const inProcess = board.data?.filter((c) => c.stage !== 'PURCHASED' && c.stage !== 'GRADING').reduce((n, c) => n + c.lots.length, 0);
+  const waiting = board.data?.find((c) => c.stage === 'PURCHASED')?.lots.length;
   const s = purchases.data;
   const unverified = scales.data?.filter((x) => !x.verification.verified).length;
-  if (!s && toApprove.data === undefined && unverified === undefined) return null;
+  if (!s && toApprove.data === undefined && unverified === undefined && inProcess === undefined) return null;
   return (
     <Grid container spacing={2} sx={{ mb: 3 }}>
       {s && <Kpi label="Cherry bought today" value={`${formatNumber(s.todayKg, 0)} kg`} hint={`${s.todayVouchers} vouchers · ${formatNumber(s.todayAmount)}`} to="/purchases" />}
@@ -42,6 +46,7 @@ function ProcurementKpis() {
         <Kpi label="Payments to approve / pay out" value={`${toApprove.data.meta.total} / ${toPay.data.meta.total}`} to="/payments" alert={toApprove.data.meta.total + toPay.data.meta.total > 0} />
       )}
       {unverified !== undefined && <Kpi label="Scales not verified" value={unverified} hint={`of ${scales.data?.length ?? 0}`} to="/scales" alert={unverified > 0} />}
+      {inProcess !== undefined && <Kpi label="Lots in wet processing" value={inProcess} hint={`${waiting ?? 0} waiting for the hopper`} to="/processing" />}
     </Grid>
   );
 }

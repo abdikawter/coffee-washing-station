@@ -23,6 +23,8 @@ The design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (v2 for this stack
 
 **Phase 2 — Procurement: done.** Suppliers (documents, status, history), cherry quality inspections with configurable rules, quality holds, equipment and maintenance, scales with daily verification (failed check → out of service + corrective action), purchase vouchers with server-computed totals and the full state machine (submit → verify → approve, return, cancel, void, PDF), supplier payments (approve → pay out → reverse, one live payment per voucher), cash ledger, and automatic lot creation with its `PURCHASED` event. Build plan: [BUILD_PLAN.md](BUILD_PLAN.md).
 
+**Phase 3 — Wet processing: done.** Hoppers, pulping machines and fermentation tanks; hopper intake and flotation (balance check), daily purchased-vs-intake reconciliation with manager review, daily pulper inspection (BLOCK/WARN policy), pulping, fermentation (one batch per tank, time window, measurements, mucilage check), washing, grading into one child lot per grade; the lot stage machine with quality holds blocking every step; lot list, lot page (timeline + outturn) and the wet-processing board.
+
 ## Run locally
 
 Requirements: Node.js ≥ 22.12, Docker (or any PostgreSQL 16).

@@ -23,7 +23,7 @@ import type { Principal } from './api/types';
 import { hasPermission } from './auth/AuthContext';
 
 /** Highest roadmap phase already delivered (ARCHITECTURE.md §17); later items show a "coming" badge. */
-export const DELIVERED_PHASE = 2;
+export const DELIVERED_PHASE = 3;
 
 export interface NavItem {
   label: string;

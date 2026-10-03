@@ -46,9 +46,34 @@ export async function startWorker(c: Container): Promise<{ stop: () => Promise<v
     if (due.length) c.logger.warn({ scales: due }, 'scales need verification');
   });
 
+  // Phase 3 monitors. Notifications arrive with Phase 7; until then they log.
+  await queue.boss.work(QUEUES.FERMENTATION_MONITOR, async () => {
+    const late = await c.processing.fermentation.monitor();
+    if (late.length) c.logger.warn({ batches: late }, 'fermentation batches approaching or past their maximum');
+  });
+  await queue.boss.work(QUEUES.HOPPER_RECONCILIATION, async () => {
+    const r = await c.processing.hopper.run(null, undefined).catch((err: Error & { code?: string }) => {
+      if (err.code === 'RECONCILIATION_REVIEWED') return null; // already reviewed today: nothing to do
+      throw err;
+    });
+    if (r) c.logger.info({ date: r.reconDate, status: r.status }, 'hopper reconciliation done');
+  });
+  await queue.boss.work(QUEUES.MAINTENANCE_DUE, async () => {
+    const { rows } = await c.pool.query(
+      `SELECT e.code, ms.type, ms.next_due_at FROM maintenance_schedules ms JOIN equipment e ON e.id = ms.equipment_id
+        WHERE ms.is_active AND ms.next_due_at < now() AND e.status <> 'DECOMMISSIONED' ORDER BY ms.next_due_at`,
+    );
+    if (rows.length) c.logger.warn({ due: rows }, 'maintenance overdue');
+  });
+
   const tz = await c.settings.get<string>('station.timezone');
   await queue.boss.schedule(QUEUES.MAINTENANCE_PURGE, '15 2 * * *', null, { tz });
   await queue.boss.schedule(QUEUES.CALIBRATION_DUE, '0 * * * *', null, { tz });
+  await queue.boss.schedule(QUEUES.FERMENTATION_MONITOR, '*/5 * * * *', null, { tz });
+  // hopper.reconciliationRunTime (HH:MM, station time); a changed setting applies at the next worker start.
+  const [hh, mm] = (await c.settings.get<string>('hopper.reconciliationRunTime')).split(':');
+  await queue.boss.schedule(QUEUES.HOPPER_RECONCILIATION, `${Number(mm)} ${Number(hh)} * * *`, null, { tz });
+  await queue.boss.schedule(QUEUES.MAINTENANCE_DUE, '0 6 * * *', null, { tz });
 
   c.logger.info('worker started');
   return {

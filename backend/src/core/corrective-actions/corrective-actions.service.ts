@@ -1,6 +1,7 @@
 import type pg from 'pg';
 import { businessDate } from '../../common/util.js';
 import type { AuditLogService } from '../audit-log/audit-log.service.js';
+import type { OutboxService } from '../outbox/outbox.service.js';
 import type { SequenceService } from '../sequences/sequence.service.js';
 import type { SettingsService } from '../settings/settings.service.js';
 
@@ -29,15 +30,34 @@ export const AUTO_CA_FALLBACK_DUE_DAYS = 7;
 
 /**
  * `raise()` is the single entry point every automatic trigger uses
- * (ARCHITECTURE.md §11.5). Phase 2 wires the failed-calibration trigger; the
- * full workflow (start/resolve/verify/close, evidence, RECOMMEND mode) is Phase 7.
+ * (ARCHITECTURE.md §11.5). Triggers that the brief makes explicit (failed
+ * calibration, audit findings) always call `raise()`; the others call
+ * `raiseOrRecommend()`, which follows controls.correctiveActionMode. The full
+ * workflow (start/resolve/verify/close, evidence, notifications) is Phase 7.
  */
 export class CorrectiveActionsService {
   constructor(
     private readonly sequences: SequenceService,
     private readonly settings: SettingsService,
     private readonly audit: AuditLogService,
+    private readonly outbox: OutboxService,
   ) {}
+
+  /**
+   * AUTO_CREATE → creates the CA; RECOMMEND (default) → emits a
+   * "corrective-action.recommended" event with the prefilled draft (Phase 7 turns
+   * it into a notification). Either way the caller gets back what happened.
+   */
+  async raiseOrRecommend(tx: pg.PoolClient, i: RaiseInput): Promise<{ mode: 'AUTO_CREATE' | 'RECOMMEND'; correctiveAction: { id: string; caNumber: string } | null }> {
+    const mode = await this.settings.getIn<'AUTO_CREATE' | 'RECOMMEND'>(tx, 'controls.correctiveActionMode');
+    if (mode === 'AUTO_CREATE') return { mode, correctiveAction: await this.raise(tx, i) };
+    const ref = i.lotId ?? i.reconciliationId ?? i.raisedById;
+    await this.outbox.emit(tx, {
+      eventType: 'corrective-action.recommended', aggregate: i.lotId ? 'Lot' : i.reconciliationId ? 'HopperReconciliation' : 'User', aggregateId: ref,
+      payload: { ...i },
+    });
+    return { mode, correctiveAction: null };
+  }
 
   async raise(tx: pg.PoolClient, i: RaiseInput): Promise<{ id: string; caNumber: string }> {
     const tz = await this.settings.getIn<string>(tx, 'station.timezone');
