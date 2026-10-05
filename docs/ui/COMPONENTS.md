@@ -1,6 +1,6 @@
 # Shared UI components
 
-Spec: [`UI_REFRESH_SPEC.md`](../UI_REFRESH_SPEC.md) §4. Import everything from `src/components` (barrel `index.ts`).
+Spec: [`UI_REFRESH_SPEC.md`](../UI_REFRESH_SPEC.md) §4. Page layouts that combine these: [TEMPLATES.md](TEMPLATES.md). Import everything from `src/components` (barrel `index.ts`).
 Pages use these instead of ad-hoc markup; colours come only from the theme.
 
 ```tsx

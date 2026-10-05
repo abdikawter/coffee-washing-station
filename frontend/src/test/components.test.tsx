@@ -1,43 +1,16 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ReactNode } from 'react';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import type { Principal } from '../api/types';
-import { AuthContext, hasPermission, type AuthState } from '../auth/AuthContext';
+import { MemoryRouter } from 'react-router-dom';
 import {
   ApprovalBar, columns, ConfirmDialog, DataTable, EmptyState, FieldScreen, FilterBar, JourneyStepper, KpiCard, MoneyText,
   PageHeader, PercentText, ProgressRing, SectionCard, StatusChip, Timeline, useTableQuery, WeightText,
 } from '../components';
 import { ColorModeProvider, COLOR_MODES, useColorMode } from '../theme';
+import { setup, where } from './render';
 
 function ModeName() {
   return <output data-testid="mode">{useColorMode().mode}</output>;
 }
-
-const user = (permissions: string[]): Principal => ({
-  id: 'u1', username: 'u', fullName: 'Test User', email: null, mustChangePassword: false, roles: [], permissions,
-});
-
-/** Shows the current URL so tests can assert what FilterBar / DataTable wrote. */
-function Where() {
-  const l = useLocation();
-  return <output data-testid="where">{l.pathname}{l.search}</output>;
-}
-
-function setup(ui: ReactNode, { permissions = [] as string[], url = '/' } = {}) {
-  const u = user(permissions);
-  const auth: AuthState = { user: u, initializing: false, login: vi.fn(), logout: vi.fn(), changePassword: vi.fn(), can: (p) => hasPermission(u, p) };
-  return render(
-    <MemoryRouter initialEntries={[url]}>
-      <AuthContext.Provider value={auth}>
-        <ColorModeProvider>
-          <Routes><Route path="*" element={<>{ui}<Where /></>} /></Routes>
-        </ColorModeProvider>
-      </AuthContext.Provider>
-    </MemoryRouter>,
-  );
-}
-const where = () => screen.getByTestId('where').textContent;
 
 describe('StatusChip', () => {
   it('colours by domain and humanizes the label', () => {
