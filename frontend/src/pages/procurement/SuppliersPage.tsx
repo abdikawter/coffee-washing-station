@@ -5,7 +5,8 @@ import {
   TableContainer, TableHead, TablePagination, TableRow, Tabs, TextField, Typography,
 } from '@mui/material';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { filesApi, IDENTIFICATION_TYPES, suppliersApi, type Supplier, type SupplierInput, type SupplierStatus } from '../../api/procurement';
 import { Can } from '../../auth/Can';
 import { ErrorAlert, Field, Loading, PageHeader, StatusChip } from '../../components/common';
@@ -148,7 +149,10 @@ function SupplierDetail({ supplier, onClose }: { supplier: Supplier; onClose: ()
 export function SuppliersPage() {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
-  const [search, setSearch] = useState('');
+  // `?search=` comes from the global search in the top bar.
+  const urlSearch = useSearchParams()[0].get('search') ?? '';
+  const [search, setSearch] = useState(urlSearch);
+  useEffect(() => { setSearch(urlSearch); setPage(0); }, [urlSearch]);
   const [status, setStatus] = useState('');
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState<Supplier | null>(null);

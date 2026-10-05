@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { useAuth } from '../auth/useAuth';
 import { ErrorAlert } from '../components/common';
-import { AuthCard } from './LoginPage';
+import { AuthLayout } from '../layouts/AuthLayout';
 
 // Mirrors the default auth.passwordPolicy; the server applies the configured policy.
 const schema = z
@@ -37,15 +37,17 @@ export function ChangePasswordPage() {
     <TextField label={label} type="password" autoComplete={autoComplete} {...register(name)} error={!!formState.errors[name]} helperText={formState.errors[name]?.message} />
   );
   return (
-    <AuthCard title="Change your password" subtitle={user?.mustChangePassword ? 'You must set a new password before continuing.' : undefined}>
+    <AuthLayout title="Change your password" subtitle={user?.mustChangePassword ? 'You must set a new password before continuing.' : 'At least 10 characters, with a letter and a digit.'}>
       <ErrorAlert error={error} />
       <Stack component="form" spacing={2} onSubmit={onSubmit} noValidate>
         {field('currentPassword', 'Current password', 'current-password')}
         {field('newPassword', 'New password', 'new-password')}
         {field('confirm', 'Repeat new password', 'new-password')}
         <Button type="submit" variant="contained" size="large" disabled={formState.isSubmitting}>Save password</Button>
-        <Button onClick={async () => { await logout(); navigate('/login'); }}>Sign out</Button>
+        {user?.mustChangePassword
+          ? <Button onClick={async () => { await logout(); navigate('/login'); }}>Sign out</Button>
+          : <Button onClick={() => navigate(-1)}>Back</Button>}
       </Stack>
-    </AuthCard>
+    </AuthLayout>
   );
 }

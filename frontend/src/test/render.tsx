@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
@@ -16,18 +17,22 @@ function Where() {
 }
 
 /** Test render helper: router (at `url`), a signed-in user with `permissions`, and the app theme. */
-export function setup(ui: ReactNode, { permissions = [] as string[], url = '/' } = {}) {
-  const u = user(permissions);
-  const auth: AuthState = { user: u, initializing: false, login: vi.fn(), logout: vi.fn(), changePassword: vi.fn(), can: (p) => hasPermission(u, p) };
-  return render(
-    <MemoryRouter initialEntries={[url]}>
-      <AuthContext.Provider value={auth}>
-        <ColorModeProvider>
-          <Routes><Route path="*" element={<>{ui}<Where /></>} /></Routes>
-        </ColorModeProvider>
-      </AuthContext.Provider>
-    </MemoryRouter>,
+export function setup(ui: ReactNode, { permissions = [] as string[], url = '/', signedOut = false } = {}) {
+  const u = signedOut ? null : user(permissions);
+  const auth: AuthState = { user: u, initializing: false, login: vi.fn(), logout: vi.fn().mockResolvedValue(undefined), changePassword: vi.fn(), can: (p) => hasPermission(u, p) };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const result = render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[url]}>
+        <AuthContext.Provider value={auth}>
+          <ColorModeProvider>
+            <Routes><Route path="*" element={<>{ui}<Where /></>} /></Routes>
+          </ColorModeProvider>
+        </AuthContext.Provider>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
+  return { ...result, auth };
 }
 /** The current path + query string (rendered by `Where`). */
 export const where = () => screen.getByTestId('where').textContent;
