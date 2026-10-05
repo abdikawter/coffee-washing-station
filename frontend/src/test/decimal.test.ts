@@ -24,6 +24,11 @@ describe('decimal previews (never floats)', () => {
     expect(formatNumber('1234567.5')).toBe('1,234,567.50');
     expect(formatNumber('89.3', 3)).toBe('89.300');
     expect(formatNumber(null)).toBe('—');
+    // rounds half away from zero instead of truncating
+    expect(formatNumber('950.5', 0)).toBe('951');
+    expect(formatNumber('62.456', 1)).toBe('62.5');
+    expect(formatNumber('-0.005', 2)).toBe('-0.01');
+    expect(formatNumber('1.004', 2)).toBe('1.00');
   });
 });
 

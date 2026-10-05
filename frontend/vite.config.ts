@@ -16,5 +16,7 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     css: false,
     globals: true,
+    // MUI X grids, pickers and dialogs render slowly in jsdom, more so when files run in parallel.
+    testTimeout: 30_000,
   },
 });

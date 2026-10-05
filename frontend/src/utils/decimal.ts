@@ -44,7 +44,13 @@ export function multiplyMoney(weightKg: string, price: string): string {
 export function formatNumber(value: string | null | undefined, dp = 2): string {
   if (value === null || value === undefined || value === '') return '—';
   if (!DECIMAL_RE.test(value)) return value;
-  const fixed = fromScaled(toScaled(value, dp), dp);
+  // Round half away from zero to `dp` places (e.g. 950.5 → 951 at dp 0) instead of cutting digits off.
+  const extra = Math.max(0, (value.split('.')[1]?.length ?? 0) - dp);
+  const full = toScaled(value, dp + extra);
+  const unit = 10n ** BigInt(extra);
+  const abs = full < 0n ? -full : full;
+  const rounded = extra ? (abs + unit / 2n) / unit : abs;
+  const fixed = fromScaled(full < 0n ? -rounded : rounded, dp);
   const [int, frac] = fixed.split('.');
   const grouped = int!.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return frac ? `${grouped}.${frac}` : grouped;

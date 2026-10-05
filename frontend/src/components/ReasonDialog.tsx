@@ -31,16 +31,16 @@ export function ReasonDialog({
     }
   };
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={busy ? undefined : onClose} fullWidth maxWidth="sm">
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>
         {message && <DialogContentText sx={{ mb: 2 }}>{message}</DialogContentText>}
         <ErrorAlert error={error} />
         <TextField autoFocus fullWidth multiline minRows={2} label="Reason" value={reason} onChange={(e) => setReason(e.target.value)}
-          helperText="Required, at least 3 characters. Recorded in the audit log." />
+          helperText="Required, at least 3 characters. Recorded in the audit log." sx={{ mt: 1 }} />
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} disabled={busy}>Cancel</Button>
         <Button variant="contained" color={danger ? 'error' : 'primary'} disabled={busy || reason.trim().length < 3} onClick={submit}>{confirmLabel}</Button>
       </DialogActions>
     </Dialog>
