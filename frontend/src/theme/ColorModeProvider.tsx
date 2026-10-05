@@ -1,5 +1,8 @@
 import { CssBaseline, ThemeProvider } from '@mui/material';
 import { useColorScheme } from '@mui/material/styles';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import 'dayjs/locale/en-gb';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { contrastTheme, theme } from './theme';
 import { COLOR_MODES, type ColorMode } from './tokens';
@@ -45,6 +48,7 @@ function SchemeSync({ mode }: { mode: ColorMode }) {
 /**
  * Provides the MUI theme for the chosen mode: the standard theme (light + dark
  * colour schemes) or the high-contrast theme. `userId` switches to that user's saved choice.
+ * Also provides the dayjs adapter for MUI X date pickers (en-GB: day-first, Monday week start).
  */
 export function ColorModeProvider({ userId, children }: { userId?: string | null; children: ReactNode }) {
   const [mode, setModeState] = useState<ColorMode>(() => read(GLOBAL_KEY) ?? 'light');
@@ -67,7 +71,9 @@ export function ColorModeProvider({ userId, children }: { userId?: string | null
       <ThemeProvider theme={mode === 'contrast' ? contrastTheme : theme} defaultMode="light">
         <SchemeSync mode={mode} />
         <CssBaseline />
-        {children}
+        <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="en-gb">
+          {children}
+        </LocalizationProvider>
       </ThemeProvider>
     </ColorModeContext.Provider>
   );

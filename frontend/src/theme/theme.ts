@@ -1,4 +1,7 @@
 import { createTheme, type CSSObject, type Theme, type TypographyStyle } from '@mui/material/styles';
+import type {} from '@mui/x-charts/themeAugmentation';
+import type {} from '@mui/x-data-grid/themeAugmentation';
+import type {} from '@mui/x-date-pickers/themeAugmentation';
 import { FONT_FAMILY, PALETTES, SHAPE, TYPE_SCALE, type ColorMode } from './tokens';
 
 declare module '@mui/material/styles' {
@@ -121,6 +124,24 @@ export function buildTheme(variant: 'standard' | 'contrast'): Theme {
       },
     },
     MuiTooltip: { styleOverrides: { tooltip: { fontSize: px(TYPE_SCALE.caption[0]) } } },
+    // MUI X (spec §3): grids and pickers use the same tokens as the rest of the app.
+    MuiDataGrid: {
+      defaultProps: { density: 'standard', disableRowSelectionOnClick: true },
+      styleOverrides: {
+        root: ({ theme }) => ({
+          borderRadius: SHAPE.radiusCard,
+          borderColor: theme.vars?.palette.divider,
+          backgroundColor: theme.vars?.palette.background.paper,
+          '--DataGrid-containerBackground': theme.vars?.palette.background.paper,
+          fontVariantNumeric: 'tabular-nums',
+          ...contrastBorder(theme),
+        }),
+        columnHeaderTitle: ({ theme }) => ({ fontWeight: 600, color: theme.vars?.palette.text.secondary }),
+        cell: { display: 'flex', alignItems: 'center' },
+      },
+    },
+    MuiDatePicker: { defaultProps: { format: 'DD MMM YYYY' } },
+    MuiDateTimePicker: { defaultProps: { format: 'DD MMM YYYY HH:mm', ampm: false } },
   },
   });
 }
