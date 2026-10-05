@@ -18,8 +18,11 @@ const RolesPage = page(() => import('./pages/admin/RolesPage'), 'RolesPage');
 const SettingsPage = page(() => import('./pages/admin/SettingsPage'), 'SettingsPage');
 const AuditLogPage = page(() => import('./pages/admin/AuditLogPage'), 'AuditLogPage');
 const SuppliersPage = page(() => import('./pages/procurement/SuppliersPage'), 'SuppliersPage');
+const SupplierProfilePage = page(() => import('./pages/procurement/SupplierProfilePage'), 'SupplierProfilePage');
+const InspectionFormPage = page(() => import('./pages/procurement/InspectionFormPage'), 'InspectionFormPage');
 const QualityPage = page(() => import('./pages/procurement/QualityPage'), 'QualityPage');
 const ScalesPage = page(() => import('./pages/procurement/ScalesPage'), 'ScalesPage');
+const EquipmentDetailPage = page(() => import('./pages/procurement/EquipmentPage'), 'EquipmentDetailPage');
 const EquipmentPage = page(() => import('./pages/procurement/EquipmentPage'), 'EquipmentPage');
 const PurchasesPage = page(() => import('./pages/procurement/PurchasesPage'), 'PurchasesPage');
 const NewVoucherPage = page(() => import('./pages/procurement/NewVoucherPage'), 'NewVoucherPage');
@@ -48,6 +51,9 @@ const PAGES: Record<string, React.ReactElement> = {
 
 /** Routes that are not navigation items (detail and creation screens). */
 const EXTRA_ROUTES: { path: string; permission: string[]; element: React.ReactElement }[] = [
+  { path: '/suppliers/:id', permission: ['supplier:read'], element: <SupplierProfilePage /> },
+  { path: '/quality/inspections/new', permission: ['quality:inspect'], element: <InspectionFormPage /> },
+  { path: '/equipment/:id', permission: ['equipment:read'], element: <EquipmentDetailPage /> },
   { path: '/purchases/new', permission: ['purchase:create'], element: <NewVoucherPage /> },
   { path: '/purchases/:id', permission: ['purchase:read'], element: <VoucherDetailPage /> },
   { path: '/lots/:id', permission: ['lot:read', 'lot:lookup'], element: <LotDetailPage /> },

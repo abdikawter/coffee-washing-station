@@ -11,6 +11,8 @@ export interface JourneyStage {
   weightKg?: string | null;
   /** Business date or ISO timestamp the stage was reached. */
   date?: string | null;
+  /** Extra detail, e.g. who did it. */
+  note?: string | null;
 }
 
 export interface JourneyStepperProps {
@@ -22,6 +24,8 @@ export interface JourneyStepperProps {
   blocked?: boolean;
   /** Force an orientation; default horizontal on desktop, vertical below `md` (spec §4). */
   orientation?: 'horizontal' | 'vertical';
+  /** Accessible name. Default "Lot journey". */
+  label?: string;
 }
 
 /** "05 Oct": business dates (YYYY-MM-DD) as-is, timestamps in the station timezone. */
@@ -33,16 +37,16 @@ const shortDate = (d: string) => {
 };
 
 /** Lot stages with the current one highlighted, plus weight and date per stage reached. */
-export function JourneyStepper({ stages, current, blocked, orientation }: JourneyStepperProps) {
+export function JourneyStepper({ stages, current, blocked, orientation, label = 'Lot journey' }: JourneyStepperProps) {
   const theme = useTheme();
   const desktop = useMediaQuery(theme.breakpoints.up('md'));
   const dir = orientation ?? (desktop ? 'horizontal' : 'vertical');
   const activeStep = Math.max(0, stages.findIndex((s) => s.code === current));
   return (
-    <Stepper activeStep={activeStep} orientation={dir} alternativeLabel={dir === 'horizontal'} aria-label="Lot journey">
+    <Stepper activeStep={activeStep} orientation={dir} alternativeLabel={dir === 'horizontal'} aria-label={label}>
       {stages.map((s, i) => {
         const reached = i <= activeStep;
-        const detail = [s.weightKg ? `${formatNumber(s.weightKg, 0)} kg` : null, s.date ? shortDate(s.date) : null].filter(Boolean).join(' · ');
+        const detail = [s.note, s.weightKg ? `${formatNumber(s.weightKg, 0)} kg` : null, s.date ? shortDate(s.date) : null].filter(Boolean).join(' · ');
         return (
           <Step key={s.code} completed={i < activeStep} aria-current={i === activeStep ? 'step' : undefined}>
             <StepLabel

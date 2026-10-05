@@ -87,13 +87,16 @@ export function registerPurchasingRoutes(api: Api, purchasing: PurchasingService
 
   // Registered before /purchases/:id so "summary" is not taken for an id.
   api.route('Purchasing', {
-    method: 'get', path: '/purchases/summary', summary: 'Today\'s purchases and vouchers waiting per status (dashboard)',
+    method: 'get', path: '/purchases/summary', summary: 'Today\'s and yesterday\'s purchases, paid today, vouchers per status, last 14 days (dashboard)',
     access: { permission: 'purchase:read' },
     response: {
       status: 200, description: 'Summary',
       schema: single(z.object({
-        date: z.string(), todayVouchers: z.number().int(), todayKg: z.string(), todayAmount: z.string(), draft: z.number().int(),
-        pendingVerification: z.number().int(), verified: z.number().int(), approved: z.number().int(),
+        date: z.string(), todayVouchers: z.number().int(), todayKg: z.string(), todayAmount: z.string(),
+        yesterdayKg: z.string(), yesterdayAmount: z.string(), paidTodayAmount: z.string(), paidTodayCount: z.number().int(),
+        draft: z.number().int(), pendingVerification: z.number().int(), verified: z.number().int(), approved: z.number().int(),
+        daily: z.array(z.object({ date: z.string(), kg: z.string(), amount: z.string(), avgPricePerKg: z.string().nullable() }))
+          .describe('Last 14 days, oldest first; cancelled and voided vouchers excluded'),
       })),
     },
     handler: async () => ({ data: await purchasing.summary() }),

@@ -108,22 +108,51 @@ export class PurchasingService {
     return { data: camelizeRows(rows.rows), total: count.rows[0].n as number };
   }
 
-  /** Dashboard figures: today's purchases (station timezone) and vouchers per status. */
+  /**
+   * Dashboard figures (station timezone): today's and yesterday's purchases, the
+   * amount paid out today, vouchers per status and the last 14 days per day.
+   * Cancelled and voided vouchers never count as bought.
+   */
   async summary() {
     const tz = await this.settings.get<string>('station.timezone');
     const today = businessDate(new Date(), tz);
-    const { rows } = await this.pool.query(
-      `SELECT count(*) FILTER (WHERE voucher_date = $1 AND status NOT IN ('CANCELLED', 'VOIDED'))::int AS today_vouchers,
-              COALESCE(sum(total_weight_kg) FILTER (WHERE voucher_date = $1 AND status NOT IN ('CANCELLED', 'VOIDED')), 0)::numeric(14,3)::text AS today_kg,
-              COALESCE(sum(total_amount) FILTER (WHERE voucher_date = $1 AND status NOT IN ('CANCELLED', 'VOIDED')), 0)::numeric(14,2)::text AS today_amount,
-              count(*) FILTER (WHERE status = 'DRAFT')::int AS draft,
-              count(*) FILTER (WHERE status = 'PENDING_VERIFICATION')::int AS pending_verification,
-              count(*) FILTER (WHERE status = 'VERIFIED')::int AS verified,
-              count(*) FILTER (WHERE status = 'APPROVED')::int AS approved
-         FROM purchase_vouchers`,
-      [today],
-    );
-    return { date: today, ...camelize<Record<string, number | string>>(rows[0]) };
+    const live = `status NOT IN ('CANCELLED', 'VOIDED')`;
+    const [totals, paid, daily] = await Promise.all([
+      this.pool.query(
+        `SELECT count(*) FILTER (WHERE voucher_date = $1 AND ${live})::int AS today_vouchers,
+                COALESCE(sum(total_weight_kg) FILTER (WHERE voucher_date = $1 AND ${live}), 0)::numeric(14,3)::text AS today_kg,
+                COALESCE(sum(total_amount) FILTER (WHERE voucher_date = $1 AND ${live}), 0)::numeric(14,2)::text AS today_amount,
+                COALESCE(sum(total_weight_kg) FILTER (WHERE voucher_date = $1::date - 1 AND ${live}), 0)::numeric(14,3)::text AS yesterday_kg,
+                COALESCE(sum(total_amount) FILTER (WHERE voucher_date = $1::date - 1 AND ${live}), 0)::numeric(14,2)::text AS yesterday_amount,
+                count(*) FILTER (WHERE status = 'DRAFT')::int AS draft,
+                count(*) FILTER (WHERE status = 'PENDING_VERIFICATION')::int AS pending_verification,
+                count(*) FILTER (WHERE status = 'VERIFIED')::int AS verified,
+                count(*) FILTER (WHERE status = 'APPROVED')::int AS approved
+           FROM purchase_vouchers`,
+        [today],
+      ),
+      this.pool.query(
+        `SELECT COALESCE(sum(amount), 0)::numeric(14,2)::text AS paid_today_amount, count(*)::int AS paid_today_count
+           FROM supplier_payments WHERE status = 'PAID' AND (paid_at AT TIME ZONE $2)::date = $1`,
+        [today, tz],
+      ),
+      this.pool.query(
+        `SELECT to_char(d, 'YYYY-MM-DD') AS date,
+                COALESCE(sum(pv.total_weight_kg), 0)::numeric(14,3)::text AS kg,
+                COALESCE(sum(pv.total_amount), 0)::numeric(14,2)::text AS amount,
+                (sum(pv.total_amount) / NULLIF(sum(pv.total_weight_kg), 0))::numeric(14,2)::text AS avg_price_per_kg
+           FROM generate_series($1::date - 13, $1::date, interval '1 day') AS d
+           LEFT JOIN purchase_vouchers pv ON pv.voucher_date = d::date AND pv.${live}
+          GROUP BY d ORDER BY d`,
+        [today],
+      ),
+    ]);
+    return {
+      date: today,
+      ...camelize<Record<string, number | string>>(totals.rows[0]),
+      ...camelize<Record<string, number | string>>(paid.rows[0]),
+      daily: camelizeRows(daily.rows) as { date: string; kg: string; amount: string; avgPricePerKg: string | null }[],
+    };
   }
 
   async get(id: string, db: pg.Pool | pg.PoolClient = this.pool) {

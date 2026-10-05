@@ -1,14 +1,15 @@
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import {
-  Accordion, AccordionDetails, AccordionSummary, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControlLabel, Stack, TextField, Typography,
+  Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Stack, TextField, Typography,
 } from '@mui/material';
+import type { GridColDef } from '@mui/x-data-grid';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { rolesApi } from '../../api/endpoints';
 import type { Permission, Role } from '../../api/types';
-import { Can } from '../../auth/Can';
-import { ErrorAlert, Loading, PageHeader } from '../../components/common';
+import { useAuth } from '../../auth/useAuth';
+import { DataTable, ErrorAlert } from '../../components';
+import { ListTemplate } from '../../templates';
+import { humanize } from '../../utils/format';
 
 function groupByModule(perms: Permission[]): [string, Permission[]][] {
   const map = new Map<string, Permission[]>();
@@ -32,7 +33,7 @@ function EditPermissionsDialog({ role, all, onClose }: { role: Role; all: Permis
         <ErrorAlert error={m.error} />
         {groupByModule(all).map(([module, perms]) => (
           <Box key={module} sx={{ mb: 2 }}>
-            <Typography variant="overline">{module}</Typography>
+            <Typography variant="overline">{humanize(module)}</Typography>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
               {perms.map((p) => (
                 <FormControlLabel key={p.code} control={<Checkbox size="small" checked={selected.has(p.code)} onChange={() => toggle(p.code)} />}
@@ -51,39 +52,56 @@ function EditPermissionsDialog({ role, all, onClose }: { role: Role; all: Permis
   );
 }
 
+/** Permissions of one role, grouped by module (quick view). */
+function RolePermissions({ role, descriptions, canEdit, onEdit }: { role: Role; descriptions: Map<string, string | null>; canEdit: boolean; onEdit: () => void }) {
+  const byModule = new Map<string, string[]>();
+  for (const p of role.permissions) { const m = p.split(':')[0]!; byModule.set(m, [...(byModule.get(m) ?? []), p]); }
+  return (
+    <Stack spacing={2.5}>
+      {role.description && <Typography color="text.secondary">{role.description}</Typography>}
+      <Stack direction="row" spacing={1}>
+        <Chip label={`${role.permissions.length} permissions`} />
+        <Chip variant="outlined" label={`${role.userCount} users`} />
+        {role.isSystem && <Chip variant="outlined" label="System role" />}
+      </Stack>
+      {canEdit && <Box><Button variant="contained" onClick={onEdit}>Edit permissions</Button></Box>}
+      {[...byModule.entries()].map(([module, codes]) => (
+        <Box key={module}>
+          <Typography variant="overline" color="text.secondary">{humanize(module)}</Typography>
+          <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 0.75 }}>
+            {codes.map((c) => <Chip key={c} size="small" variant="outlined" label={c.split(':').slice(1).join(':')} title={descriptions.get(c) ?? c} />)}
+          </Stack>
+        </Box>
+      ))}
+    </Stack>
+  );
+}
+
 /** Role–permission matrix (ARCHITECTURE.md §7), editable by holders of role:manage. */
 export function RolesPage() {
+  const { can } = useAuth();
   const roles = useQuery({ queryKey: ['roles'], queryFn: rolesApi.list });
   const perms = useQuery({ queryKey: ['permissions'], queryFn: rolesApi.permissions, staleTime: 600_000 });
+  const [peekId, setPeekId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Role | null>(null);
   const descriptions = useMemo(() => new Map(perms.data?.map((p) => [p.code, p.description]) ?? []), [perms.data]);
+  const peek = roles.data?.find((r) => r.id === peekId) ?? null;
+
+  const columns: GridColDef<Role>[] = [
+    { field: 'name', headerName: 'Role', flex: 1, minWidth: 180 },
+    { field: 'description', headerName: 'Description', flex: 2, minWidth: 220 },
+    { field: 'permissions', headerName: 'Permissions', type: 'number', minWidth: 120, valueGetter: (_v, r) => r.permissions.length },
+    { field: 'userCount', headerName: 'Users', type: 'number', minWidth: 90 },
+  ];
 
   return (
-    <>
-      <PageHeader title="Roles & permissions" subtitle="What each role may do. Code checks permissions, so changes apply immediately." />
-      <ErrorAlert error={roles.error ?? perms.error} />
-      {(roles.isLoading || perms.isLoading) && <Loading />}
-      {roles.data?.map((r) => (
-        <Accordion key={r.id} disableGutters variant="outlined">
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Stack direction="row" spacing={2} sx={{ alignItems: 'center', width: '100%' }}>
-              <Typography sx={{ fontWeight: 600, minWidth: 200 }}>{r.name}</Typography>
-              <Typography color="text.secondary" sx={{ flexGrow: 1, display: { xs: 'none', md: 'block' } }}>{r.description}</Typography>
-              <Chip size="small" label={`${r.permissions.length} permissions`} />
-              <Chip size="small" variant="outlined" label={`${r.userCount} users`} />
-            </Stack>
-          </AccordionSummary>
-          <AccordionDetails>
-            <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 0.75, mb: 2 }}>
-              {r.permissions.map((p) => <Chip key={p} size="small" variant="outlined" label={p} title={descriptions.get(p) ?? undefined} />)}
-            </Stack>
-            <Can permission="role:manage">
-              <Button variant="outlined" disabled={!perms.data} onClick={() => setEditing(r)}>Edit permissions</Button>
-            </Can>
-          </AccordionDetails>
-        </Accordion>
-      ))}
+    <ListTemplate title="Roles & permissions" subtitle="What each role may do. Changes apply immediately." error={roles.error ?? perms.error}
+      quickView={{
+        open: Boolean(peek), title: peek?.name ?? '', onClose: () => setPeekId(null),
+        children: peek && <RolePermissions role={peek} descriptions={descriptions} canEdit={can('role:manage') && Boolean(perms.data)} onEdit={() => setEditing(peek)} />,
+      }}>
+      <DataTable label="Roles" loading={roles.isLoading} rows={roles.data ?? []} columns={columns} onRowClick={(r) => setPeekId(r.id)} />
       {editing && perms.data && <EditPermissionsDialog role={editing} all={perms.data} onClose={() => setEditing(null)} />}
-    </>
+    </ListTemplate>
   );
 }

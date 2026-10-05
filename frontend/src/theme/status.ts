@@ -13,7 +13,7 @@ export type StatusTone = 'success' | 'warning' | 'error' | 'info' | 'neutral';
 
 export type StatusDomain =
   | 'user' | 'supplier' | 'settingSource' | 'equipment' | 'checkResult' | 'inspection' | 'qualityRule' | 'hold'
-  | 'voucher' | 'payment' | 'lot' | 'lotStage' | 'fermentation' | 'fermentationTiming' | 'mucilage' | 'reconciliation';
+  | 'voucher' | 'payment' | 'lot' | 'lotStage' | 'fermentation' | 'fermentationTiming' | 'mucilage' | 'reconciliation' | 'scaleCheck';
 
 export const STATUS_TONES: Record<StatusDomain, Record<string, StatusTone>> = {
   user: { ACTIVE: 'success', LOCKED: 'error', INACTIVE: 'neutral' },
@@ -38,6 +38,8 @@ export const STATUS_TONES: Record<StatusDomain, Record<string, StatusTone>> = {
   fermentationTiming: { BEFORE_MIN: 'info', IN_WINDOW: 'success', APPROACHING_MAX: 'warning', OVERDUE: 'error' },
   mucilage: { NOT_ASSESSED: 'neutral', INCOMPLETE: 'warning', COMPLETE: 'success' },
   reconciliation: { BALANCED: 'success', DISCREPANCY: 'error', REVIEWED: 'success' },
+  /** Scale board: may it be used for weighing right now? */
+  scaleCheck: { VERIFIED: 'success', DUE: 'warning', OUT_OF_SERVICE: 'error' },
 };
 
 /**

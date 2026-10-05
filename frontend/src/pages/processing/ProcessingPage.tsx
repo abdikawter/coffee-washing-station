@@ -1,8 +1,12 @@
 import AddIcon from '@mui/icons-material/Add';
 import {
   Alert, Box, Button, Card, CardActions, CardContent, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel,
-  Grid, MenuItem, Paper, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, TextField, Typography,
+  Link, MenuItem, Stack, Tab, Tabs, TextField, Typography, useTheme,
 } from '@mui/material';
+import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
+import type { GridColDef } from '@mui/x-data-grid';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import dayjs from 'dayjs';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
@@ -10,13 +14,15 @@ import { lotsApi, processingApi, type Batch, type BoardLot, type CaResult, type 
 import { qualityApi } from '../../api/procurement';
 import { Can } from '../../auth/Can';
 import { useAuth } from '../../auth/useAuth';
-import { ErrorAlert, Field, Loading, PageHeader, StatusChip } from '../../components/common';
-import { ReasonDialog } from '../../components/ReasonDialog';
+import {
+  DataTable, EmptyState, ErrorAlert, Field, Loading, PercentText, ProgressRing, ReasonDialog, SectionCard, StatusChip, WeightText,
+} from '../../components';
+import { ListTemplate } from '../../templates';
+import { statusTone } from '../../theme';
 import { add, formatNumber, isDecimal, subtract } from '../../utils/decimal';
 import { formatDateTime, humanize, STATION_TIMEZONE } from '../../utils/format';
 
 const kgField = (v: string) => !v || isDecimal(v);
-const TIMING_COLOR: Record<TimingState, 'default' | 'success' | 'warning' | 'error'> = { BEFORE_MIN: 'default', IN_WINDOW: 'success', APPROACHING_MAX: 'warning', OVERDUE: 'error' };
 const TIMING_LABEL: Record<TimingState, string> = { BEFORE_MIN: 'Fermenting', IN_WINDOW: 'Ready window', APPROACHING_MAX: 'Approaching max', OVERDUE: 'Overdue' };
 
 function caMessage(ca: CaResult | null | undefined): string | null {
@@ -206,35 +212,38 @@ function Board() {
     <>
       <ErrorAlert error={q.error} />
       {q.isLoading && <Loading />}
-      <Box sx={{ display: 'grid', gridAutoFlow: 'column', gridAutoColumns: { xs: '85%', sm: '45%', md: 'minmax(220px, 1fr)' }, gap: 2, overflowX: 'auto', pb: 1 }}>
-        {q.data?.map((col) => (
-          <Paper key={col.stage} variant="outlined" sx={{ p: 1.5, bgcolor: 'action.hover', minHeight: 200 }}>
-            <Stack direction="row" sx={{ justifyContent: 'space-between', mb: 1 }}>
-              <Typography variant="subtitle2">{humanize(col.stage)}</Typography>
-              <Chip size="small" label={col.lots.length} />
+      <Box sx={{ display: 'grid', gridAutoFlow: 'column', gridAutoColumns: { xs: '85%', sm: '45%', md: 'minmax(230px, 1fr)' }, gap: 2, overflowX: 'auto', pb: 1 }}>
+        {q.data?.map((column) => (
+          <Box key={column.stage} component="section" aria-label={`${humanize(column.stage)}: ${column.lots.length} lots`}
+            sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: 3, minHeight: 200 }}>
+            <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1.5, px: 0.5 }}>
+              <Typography variant="subtitle2" component="h2">{humanize(column.stage)}</Typography>
+              <Chip size="small" label={column.lots.length} />
             </Stack>
             <Stack spacing={1}>
-              {col.lots.map((l) => {
+              {column.lots.length === 0 && <Typography variant="caption" color="text.secondary" sx={{ px: 0.5 }}>No lots</Typography>}
+              {column.lots.map((l) => {
                 const step = nextStep(l);
                 return (
-                  <Card key={l.id} variant="outlined" sx={{ borderColor: l.onHold ? 'error.main' : undefined }}>
+                  <Card key={l.id} component="article" sx={{ borderLeft: 4, borderLeftColor: l.onHold ? 'error.main' : 'divider' }}>
                     <CardContent sx={{ pb: 1 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }} component={RouterLink} to={`/lots/${l.id}`}>{l.lotNumber}</Typography>
+                      <Link component={RouterLink} to={`/lots/${l.id}`} variant="body2" sx={{ fontWeight: 600 }}>{l.lotNumber}</Link>
                       <Typography variant="caption" component="div" color="text.secondary">
-                        {l.supplierName ?? ''}{l.gradeCode ? ` · ${l.gradeCode}` : ''} · {formatNumber(l.currentWeightKg, 3)} kg
+                        {l.supplierName ?? ''}{l.gradeCode ? ` · ${l.gradeCode}` : ''}
                       </Typography>
-                      {l.onHold && <StatusChip status="ON_HOLD" label="On hold" />}
+                      <Typography variant="body2" sx={{ mt: 0.5 }}><WeightText value={l.currentWeightKg} dp={0} /></Typography>
+                      {l.onHold && <Box sx={{ mt: 0.5 }}><StatusChip status="ON_HOLD" domain="lot" /></Box>}
                     </CardContent>
-                    <CardActions sx={{ pt: 0 }}>
+                    <CardActions sx={{ pt: 0, px: 2, pb: 1.5 }}>
                       {'label' in step
                         ? can(step.permission) && <Button size="small" variant="contained" disabled={l.onHold} onClick={() => setOpen({ lot: l, step })}>{step.label}</Button>
-                        : step.to ? <Button size="small" component={RouterLink} to={step.to}>{step.info}</Button> : <Typography variant="caption">{step.info}</Typography>}
+                        : step.to ? <Button size="small" component={RouterLink} to={step.to}>{step.info}</Button> : <Typography variant="caption" color="text.secondary">{step.info}</Typography>}
                     </CardActions>
                   </Card>
                 );
               })}
             </Stack>
-          </Paper>
+          </Box>
         ))}
       </Box>
       {open && open.step.dialog(open.lot, () => setOpen(null))}
@@ -269,6 +278,29 @@ function MeasureDialog({ batch, onClose }: { batch: Batch; onClose: () => void }
   );
 }
 
+/** Temperature readings of a batch as a small trend line (single series, labelled). */
+function MeasurementsMini({ batchId }: { batchId: string }) {
+  const theme = useTheme();
+  const q = useQuery({ queryKey: ['fermentation', batchId], queryFn: () => processingApi.batch(batchId), refetchInterval: 120_000 });
+  const ms = [...(q.data?.measurements ?? [])].sort((a, b) => a.measuredAt.localeCompare(b.measuredAt));
+  const temps = ms.filter((m) => m.temperatureC !== null).map((m) => Number(m.temperatureC));
+  const last = ms[ms.length - 1];
+  if (!last) return <Typography variant="caption" color="text.secondary">No measurements yet</Typography>;
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" component="div">
+        Last: {[last.temperatureC && `${last.temperatureC} °C`, last.ph && `pH ${last.ph}`, humanize(last.mucilageAssessment)].filter(Boolean).join(' · ')} ({formatDateTime(last.measuredAt)})
+      </Typography>
+      {temps.length > 1 && (
+        <Box aria-label={`Temperature trend: ${temps.join(', ')} °C`} role="img">
+          <SparkLineChart data={temps} height={32} color={theme.vars?.palette.info.main} showTooltip valueFormatter={(v) => (v === null ? '' : `${v} °C`)} />
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+/** One card per tank (spec §7): ring of hours elapsed vs the max, amber near max, red over max. */
 function FermentationTab() {
   const q = useQuery({ queryKey: ['fermentation', 'active'], queryFn: () => processingApi.batches({ page: 1, pageSize: 50, status: 'IN_PROGRESS' }), refetchInterval: 60_000 });
   const qc = useQueryClient();
@@ -281,32 +313,42 @@ function FermentationTab() {
   return (
     <>
       <ErrorAlert error={q.error ?? complete.error} />
-      {q.data?.data.length === 0 && <Typography color="text.secondary">No fermentation in progress.</Typography>}
-      <Grid container spacing={2}>
-        {q.data?.data.map((b) => (
-          <Grid key={b.id} size={{ xs: 12, sm: 6, lg: 4 }}>
-            <Card variant="outlined" sx={{ borderColor: `${TIMING_COLOR[b.timing.state] === 'default' ? 'divider' : `${TIMING_COLOR[b.timing.state]}.main`}`, borderWidth: 2 }}>
-              <CardContent>
-                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="h6">{b.tankCode}</Typography>
-                  <Chip size="small" color={TIMING_COLOR[b.timing.state]} label={TIMING_LABEL[b.timing.state]} />
+      {q.isLoading && <Loading />}
+      {q.data?.data.length === 0 && <EmptyState title="No fermentation in progress" message="Start fermentation from the board once a lot is pulped." />}
+      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' } }}>
+        {q.data?.data.map((b) => {
+          const tone = statusTone(b.timing.state, 'fermentationTiming');
+          const pct = (Number(b.timing.elapsedHours) / Number(b.maxDurationHours)) * 100;
+          return (
+            <Card key={b.id} component="article" aria-label={`Tank ${b.tankCode}`} sx={{ display: 'flex', flexDirection: 'column' }}>
+              <CardContent sx={{ flexGrow: 1 }}>
+                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="h6" component="h2">Tank {b.tankCode}</Typography>
+                  <StatusChip status={b.timing.state} domain="fermentationTiming" label={TIMING_LABEL[b.timing.state]} />
                 </Stack>
-                <Typography color="text.secondary" gutterBottom>{b.batchNumber} · <RouterLink to={`/lots/${b.lotId}`}>{b.lotNumber}</RouterLink></Typography>
-                <Typography variant="h4" sx={{ fontWeight: 600 }}>{b.timing.elapsedHours} h</Typography>
-                <Typography variant="body2">Window {b.minDurationHours}–{b.maxDurationHours} h · max at {formatDateTime(b.timing.maxEndAt)}</Typography>
-                <Typography variant="body2">{formatNumber(b.inputKg, 3)} kg · mucilage {humanize(b.mucilageAssessment)}</Typography>
+                <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+                  <ProgressRing value={pct} tone={tone} label={`${formatNumber(b.timing.elapsedHours, 0)} h`} caption={`of ${formatNumber(b.minDurationHours, 0)}–${formatNumber(b.maxDurationHours, 0)} h`}
+                    ariaLabel={`Fermentation time of tank ${b.tankCode}`} />
+                  <Stack spacing={0.5} sx={{ minWidth: 0 }}>
+                    <Link component={RouterLink} to={`/lots/${b.lotId}`} variant="body2" sx={{ fontWeight: 600 }}>{b.lotNumber}</Link>
+                    <Typography variant="caption" color="text.secondary">{b.batchNumber}</Typography>
+                    <Typography variant="body2"><WeightText value={b.inputKg} dp={0} /></Typography>
+                    <Typography variant="caption" color="text.secondary">Max at {formatDateTime(b.timing.maxEndAt)}</Typography>
+                  </Stack>
+                </Stack>
+                <Box sx={{ mt: 1.5 }}><MeasurementsMini batchId={b.id} /></Box>
               </CardContent>
-              <CardActions>
-                <Can permission={['fermentation:record', 'fermentation:assess']}><Button onClick={() => setMeasuring(b)}>Measure</Button></Can>
+              <CardActions sx={{ px: 2, pb: 2 }}>
+                <Can permission={['fermentation:record', 'fermentation:assess']}><Button variant="outlined" onClick={() => setMeasuring(b)}>Measure</Button></Can>
                 <Can permission="fermentation:record">
                   <Button variant="contained" disabled={complete.isPending}
                     onClick={() => (b.timing.state === 'BEFORE_MIN' ? setCompleting(b) : complete.mutate(b))}>Complete</Button>
                 </Can>
               </CardActions>
             </Card>
-          </Grid>
-        ))}
-      </Grid>
+          );
+        })}
+      </Box>
       {measuring && <MeasureDialog batch={measuring} onClose={() => setMeasuring(null)} />}
       {completing && (
         <ReasonDialog open title={`Complete ${completing.batchNumber} early`} message={`Only ${completing.timing.elapsedHours} h of the minimum ${completing.minDurationHours} h.`}
@@ -343,30 +385,32 @@ function MachinesTab() {
   return (
     <>
       <ErrorAlert error={q.error} />
-      <Grid container spacing={2}>
+      {q.data?.length === 0 && <EmptyState title="No pulping machines registered" message="Add them on the Setup tab." />}
+      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' } }}>
         {q.data?.map((m) => {
           const checkedToday = m.lastInspection?.inspection_date === today;
+          const ok = checkedToday && m.lastInspection?.result === 'PASS';
           return (
-            <Grid key={m.id} size={{ xs: 12, sm: 6, lg: 4 }}>
-              <Card variant="outlined">
-                <CardContent>
-                  <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
-                    <Typography variant="h6">{m.code}</Typography>
-                    <StatusChip status={m.status} label={humanize(m.status)} />
-                  </Stack>
-                  <Typography color="text.secondary" gutterBottom>{m.name}</Typography>
-                  <Typography variant="body2" color={checkedToday && m.lastInspection?.result === 'PASS' ? 'success.main' : 'error.main'}>
-                    {m.lastInspection ? `Last check ${m.lastInspection.inspection_date}: ${m.lastInspection.result}` : 'Never checked'}
-                  </Typography>
-                </CardContent>
-                <CardActions>
-                  <Can permission="pulping:record"><Button variant="contained" onClick={() => setChecking(m)} disabled={checkedToday}>{checkedToday ? 'Checked today' : 'Daily check'}</Button></Can>
-                </CardActions>
-              </Card>
-            </Grid>
+            <Card key={m.id} component="article" aria-label={`Pulper ${m.code}`} sx={{ borderTop: 4, borderTopColor: ok ? 'success.main' : 'warning.main' }}>
+              <CardContent>
+                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="h6" component="h2">{m.code}</Typography>
+                  <StatusChip status={m.status} domain="equipment" />
+                </Stack>
+                <Typography color="text.secondary" variant="body2" gutterBottom>{m.name}</Typography>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 1 }}>
+                  {m.lastInspection
+                    ? <><StatusChip status={m.lastInspection.result} domain="checkResult" /><Typography variant="body2">{checkedToday ? 'Checked today' : `Last check ${m.lastInspection.inspection_date}`}</Typography></>
+                    : <Typography variant="body2" color="text.secondary">Never checked</Typography>}
+                </Stack>
+              </CardContent>
+              <CardActions sx={{ px: 2, pb: 2 }}>
+                <Can permission="pulping:record"><Button variant="contained" onClick={() => setChecking(m)} disabled={checkedToday}>{checkedToday ? 'Checked today' : 'Daily check'}</Button></Can>
+              </CardActions>
+            </Card>
           );
         })}
-      </Grid>
+      </Box>
       {checking && <MachineCheckDialog machine={checking} onClose={() => setChecking(null)} />}
     </>
   );
@@ -374,6 +418,24 @@ function MachinesTab() {
 
 // ---------------------------------------------------------------- reconciliation
 
+/** Purchased vs hopper intake as two labelled bars on one scale. */
+function PurchasedVsIntake({ r }: { r: Reconciliation }) {
+  const max = Math.max(Number(r.purchasedCherryKg), Number(r.hopperIntakeKg), 1);
+  const bar = (label: string, kg: string, color: string) => (
+    <Box>
+      <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+        <Typography variant="caption" color="text.secondary">{label}</Typography>
+        <Typography variant="caption"><WeightText value={kg} dp={0} /></Typography>
+      </Stack>
+      <Box sx={{ height: 10, bgcolor: 'action.hover', borderRadius: 1, overflow: 'hidden' }}>
+        <Box sx={{ height: '100%', width: `${(Number(kg) / max) * 100}%`, bgcolor: color, borderRadius: 1 }} />
+      </Box>
+    </Box>
+  );
+  return <Stack spacing={1}>{bar('Purchased', r.purchasedCherryKg, 'primary.main')}{bar('Hopper intake', r.hopperIntakeKg, 'secondary.main')}</Stack>;
+}
+
+/** Day cards (spec §7): purchased vs intake, difference %, status and review. */
 function ReconciliationTab() {
   const qc = useQueryClient();
   const [date, setDate] = useState('');
@@ -381,55 +443,54 @@ function ReconciliationTab() {
   const [reviewing, setReviewing] = useState<Reconciliation | null>(null);
   const q = useQuery({ queryKey: ['reconciliations'], queryFn: () => processingApi.reconciliations({ page: 1, pageSize: 60 }), placeholderData: keepPreviousData });
   const run = useMutation({ mutationFn: () => processingApi.runReconciliation(date || undefined), onSuccess: (r) => { setOpen(r); qc.invalidateQueries({ queryKey: ['reconciliations'] }); } });
+  type Detail = Reconciliation['detail'][number];
+  const detailCols: GridColDef<Detail>[] = [
+    { field: 'lotNumber', headerName: 'Lot', minWidth: 150 },
+    { field: 'purchasedKg', headerName: 'Purchased (kg)', align: 'right', headerAlign: 'right', minWidth: 130, renderCell: (p) => <WeightText value={p.row.purchasedKg} hideUnit /> },
+    { field: 'intakeKg', headerName: 'Intake (kg)', align: 'right', headerAlign: 'right', minWidth: 120, renderCell: (p) => <WeightText value={p.row.intakeKg} hideUnit /> },
+    { field: 'differenceKg', headerName: 'Difference', align: 'right', headerAlign: 'right', minWidth: 170, renderCell: (p) => <span><WeightText value={p.row.differenceKg} /> · <PercentText value={p.row.differencePct} dp={1} /></span> },
+    { field: 'flagged', headerName: '', minWidth: 100, renderCell: (p) => p.row.flagged && <StatusChip status="DISCREPANCY" domain="reconciliation" label="Flagged" /> },
+  ];
   return (
     <>
       <Can permission="reconciliation:run">
-        <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-          <TextField size="small" type="date" label="Day" value={date} onChange={(e) => setDate(e.target.value)} slotProps={{ inputLabel: { shrink: true } }} helperText="Empty = today" />
+        <Stack direction="row" spacing={1} sx={{ mb: 2, alignItems: 'flex-start' }}>
+          <DatePicker label="Day" value={date ? dayjs(date) : null} onChange={(d) => setDate(d && d.isValid() ? d.format('YYYY-MM-DD') : '')} disableFuture
+            slotProps={{ textField: { size: 'small', helperText: 'Empty = today' }, field: { clearable: true } }} />
           <Button variant="contained" onClick={() => run.mutate()} disabled={run.isPending}>Run reconciliation</Button>
         </Stack>
       </Can>
       <ErrorAlert error={q.error ?? run.error} />
       {run.data && caMessage(run.data.correctiveAction) && <Alert severity="warning" sx={{ mb: 2 }}>{caMessage(run.data.correctiveAction)}</Alert>}
-      <Paper variant="outlined">
-        <Table size="small">
-          <TableHead>
-            <TableRow><TableCell>Day</TableCell><TableCell align="right">Purchased kg</TableCell><TableCell align="right">Intake kg</TableCell><TableCell align="right">Difference</TableCell><TableCell>Status</TableCell><TableCell /></TableRow>
-          </TableHead>
-          <TableBody>
-            {q.data?.data.map((r) => (
-              <TableRow key={r.id} hover sx={{ cursor: 'pointer' }} onClick={() => setOpen(r)}>
-                <TableCell>{r.reconDate}</TableCell>
-                <TableCell align="right">{formatNumber(r.purchasedCherryKg, 3)}</TableCell>
-                <TableCell align="right">{formatNumber(r.hopperIntakeKg, 3)}</TableCell>
-                <TableCell align="right">{r.differenceKg} kg · {r.differencePct} % (tol. {r.tolerancePct} %)</TableCell>
-                <TableCell><StatusChip status={r.status === 'BALANCED' ? 'PASS' : r.status === 'DISCREPANCY' ? 'FAIL' : 'CONFIRMED'} label={humanize(r.status)} /></TableCell>
-                <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                  {r.status === 'DISCREPANCY' && <Can permission="reconciliation:review"><Button size="small" onClick={() => setReviewing(r)}>Review</Button></Can>}
-                </TableCell>
-              </TableRow>
-            ))}
-            {q.data?.data.length === 0 && <TableRow><TableCell colSpan={6}><Typography color="text.secondary" sx={{ p: 2 }}>No reconciliations yet. They also run automatically every evening.</Typography></TableCell></TableRow>}
-          </TableBody>
-        </Table>
-      </Paper>
+      {q.isLoading && <Loading />}
+      {q.data?.data.length === 0 && <EmptyState title="No reconciliations yet" message="They also run automatically every evening." />}
+      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' } }}>
+        {q.data?.data.map((r) => (
+          <Card key={r.id} component="article" aria-label={`Reconciliation ${r.reconDate}`}>
+            <CardContent>
+              <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                <Typography variant="h6" component="h2">{r.reconDate}</Typography>
+                <StatusChip status={r.status} domain="reconciliation" />
+              </Stack>
+              <PurchasedVsIntake r={r} />
+              <Typography variant="body2" sx={{ mt: 1.5 }}>
+                Difference <strong><WeightText value={r.differenceKg} dp={0} /> · <PercentText value={r.differencePct} dp={1} /></strong>
+                <Typography component="span" variant="caption" color="text.secondary"> (tolerance <PercentText value={r.tolerancePct} dp={1} />)</Typography>
+              </Typography>
+            </CardContent>
+            <CardActions sx={{ px: 2, pb: 2 }}>
+              <Button onClick={() => setOpen(r)}>Lots</Button>
+              {r.status === 'DISCREPANCY' && <Can permission="reconciliation:review"><Button variant="contained" onClick={() => setReviewing(r)}>Review</Button></Can>}
+            </CardActions>
+          </Card>
+        ))}
+      </Box>
       {open && (
         <Dialog open onClose={() => setOpen(null)} fullWidth maxWidth="md">
           <DialogTitle>Reconciliation {open.reconDate}</DialogTitle>
           <DialogContent>
             {open.reviewNotes && <Alert severity="info" sx={{ mb: 2 }}>Reviewed by {open.reviewedByName}: {open.reviewNotes}</Alert>}
-            <Table size="small">
-              <TableHead><TableRow><TableCell>Lot</TableCell><TableCell align="right">Purchased</TableCell><TableCell align="right">Intake</TableCell><TableCell align="right">Difference</TableCell><TableCell /></TableRow></TableHead>
-              <TableBody>
-                {open.detail.map((d) => (
-                  <TableRow key={d.lotNumber}>
-                    <TableCell>{d.lotNumber}</TableCell><TableCell align="right">{d.purchasedKg}</TableCell><TableCell align="right">{d.intakeKg}</TableCell>
-                    <TableCell align="right">{d.differenceKg} kg · {d.differencePct} %</TableCell>
-                    <TableCell>{d.flagged && <StatusChip status="FAIL" label="Flagged" />}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <DataTable label={`Lots of ${open.reconDate}`} rows={open.detail} columns={detailCols} getRowId={(d) => d.lotNumber} empty={{ title: 'No lots that day' }} />
           </DialogContent>
           <DialogActions><Button onClick={() => setOpen(null)}>Close</Button></DialogActions>
         </Dialog>
@@ -457,9 +518,9 @@ function SetupTab() {
   return (
     <>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Each unit is also listed under Equipment, where its maintenance and status are managed.</Typography>
-      <Grid container spacing={2}>
-        {KINDS.map((k) => <Grid key={k.kind} size={{ xs: 12, md: 4 }}><UnitList kind={k} onAdd={() => { setF({ code: '', name: '', capacityKg: '', location: '' }); setAdding(k); }} /></Grid>)}
-      </Grid>
+      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, alignItems: 'start' }}>
+        {KINDS.map((k) => <UnitList key={k.kind} kind={k} onAdd={() => { setF({ code: '', name: '', capacityKg: '', location: '' }); setAdding(k); }} />)}
+      </Box>
       {adding && (
         <StepDialog title={`Register · ${adding.label}`} onClose={() => setAdding(null)}
           valid={!!f.code.trim() && f.name.trim().length >= 2 && (!adding.capacity || isDecimal(f.capacityKg))}
@@ -479,22 +540,18 @@ function SetupTab() {
 function UnitList({ kind, onAdd }: { kind: (typeof KINDS)[number]; onAdd: () => void }) {
   const q = useQuery({ queryKey: ['units', kind.kind], queryFn: () => processingApi.units(kind.kind) });
   return (
-    <Paper variant="outlined" sx={{ p: 2 }}>
-      <Stack direction="row" sx={{ justifyContent: 'space-between', mb: 1 }}>
-        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{kind.label}</Typography>
-        <Can permission="equipment:manage"><Button size="small" startIcon={<AddIcon />} onClick={onAdd}>Add</Button></Can>
-      </Stack>
+    <SectionCard title={kind.label} actions={<Can permission="equipment:manage"><Button size="small" startIcon={<AddIcon />} onClick={onAdd}>Add</Button></Can>}>
       <ErrorAlert error={q.error} />
       {q.data?.length === 0 && <Typography variant="body2" color="text.secondary">None yet.</Typography>}
-      <Stack spacing={1}>
+      <Stack spacing={1.5}>
         {q.data?.map((u) => (
-          <Stack key={u.id} direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
-            <Field label={u.code}>{u.name}{u.capacityKg ? ` · ${formatNumber(u.capacityKg, 0)} kg` : ''}</Field>
-            <StatusChip status={u.status} label={humanize(u.status)} />
+          <Stack key={u.id} direction="row" spacing={1} sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <Field label={u.code}>{u.name}{u.capacityKg ? <> · <WeightText value={u.capacityKg} dp={0} /></> : null}</Field>
+            <StatusChip status={u.status} domain="equipment" />
           </Stack>
         ))}
       </Stack>
-    </Paper>
+    </SectionCard>
   );
 }
 
@@ -511,12 +568,12 @@ export function ProcessingPage() {
   ].filter((t): t is { value: string; label: string; el: React.ReactElement } => !!t);
   const current = tabs.find((t) => t.value === params.get('tab')) ?? tabs[0];
   return (
-    <>
-      <PageHeader title="Wet processing" subtitle="Hopper → flotation → pulping → fermentation → washing → grading" />
-      <Tabs value={current?.value ?? false} onChange={(_, v) => setParams({ tab: v })} variant="scrollable" sx={{ mb: 2 }}>
+    <ListTemplate title="Wet processing" subtitle="Hopper → flotation → pulping → fermentation → washing → grading">
+      <Tabs value={current?.value ?? false} onChange={(_, v: string) => setParams({ tab: v })} variant="scrollable" allowScrollButtonsMobile
+        sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
         {tabs.map((t) => <Tab key={t.value} value={t.value} label={t.label} />)}
       </Tabs>
       {current?.el}
-    </>
+    </ListTemplate>
   );
 }

@@ -1,10 +1,9 @@
 import AddIcon from '@mui/icons-material/Add';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
-  Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, FormGroup, FormLabel, IconButton,
-  Menu, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography,
+  Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, FormGroup, FormLabel, Stack, TextField, Typography,
 } from '@mui/material';
+import type { GridColDef } from '@mui/x-data-grid';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
@@ -12,8 +11,8 @@ import { z } from 'zod';
 import { rolesApi, usersApi } from '../../api/endpoints';
 import type { User } from '../../api/types';
 import { Can } from '../../auth/Can';
-import { ErrorAlert, Loading, PageHeader, StatusChip } from '../../components/common';
-import { ReasonDialog } from '../../components/ReasonDialog';
+import { columns as col, DataTable, ErrorAlert, Field, ReasonDialog, StatusChip, useTableQuery, useUrlFilters } from '../../components';
+import { ListTemplate } from '../../templates';
 import { formatDateTime, humanize } from '../../utils/format';
 
 /** Roles come from the server (only SUPER_ADMIN for now; more roles are added later without UI changes). */
@@ -136,89 +135,81 @@ function ResetPasswordDialog({ user, onClose }: { user: User; onClose: () => voi
 
 type Action = { kind: 'roles' | 'reset' | 'deactivate' | 'activate' | 'unlock'; user: User };
 
+const STATUSES = ['ACTIVE', 'INACTIVE', 'LOCKED'] as const;
+
+/** Quick view of one user with the actions an administrator may take. */
+function UserSummary({ user, onAction }: { user: User; onAction: (a: Action) => void }) {
+  const act = (kind: Action['kind']) => () => onAction({ kind, user });
+  return (
+    <Stack spacing={3}>
+      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: '1fr 1fr' }}>
+        <Field label="Username">{user.username}</Field>
+        <Field label="Status"><StatusChip status={user.status} domain="user" /></Field>
+        <Field label="E-mail">{user.email}</Field>
+        <Field label="Phone">{user.phone}</Field>
+        <Field label="Last sign-in">{formatDateTime(user.lastLoginAt)}</Field>
+        <Field label="Created">{formatDateTime(user.createdAt)}</Field>
+      </Box>
+      <Field label="Roles">{user.roles.length ? user.roles.map(humanize).join(', ') : 'None'}</Field>
+      {user.mustChangePassword && <Typography variant="body2" color="text.secondary">Must change the password at next sign-in.</Typography>}
+      <Can permission="user:manage">
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+          <Button variant="outlined" onClick={act('roles')}>Edit roles</Button>
+          <Button variant="outlined" onClick={act('reset')}>Reset password</Button>
+          {user.status === 'LOCKED' && <Button variant="outlined" onClick={act('unlock')}>Unlock</Button>}
+          {user.status === 'INACTIVE'
+            ? <Button variant="outlined" onClick={act('activate')}>Activate</Button>
+            : <Button variant="outlined" color="error" onClick={act('deactivate')}>Deactivate</Button>}
+        </Stack>
+      </Can>
+    </Stack>
+  );
+}
+
 export function UsersPage() {
   const qc = useQueryClient();
-  const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(25);
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
-  const [role, setRole] = useState('');
+  const { table, apiParams } = useTableQuery();
+  const { get } = useUrlFilters();
   const [creating, setCreating] = useState(false);
-  const [menu, setMenu] = useState<{ anchor: HTMLElement; user: User } | null>(null);
+  const [peekId, setPeekId] = useState<string | null>(null);
   const [action, setAction] = useState<Action | null>(null);
+  const roles = useRoles();
 
+  const filters = { search: get('search') || undefined, status: get('status') || undefined, role: get('role') || undefined };
   const q = useQuery({
-    queryKey: ['users', { page, pageSize, search, status, role }],
-    queryFn: () => usersApi.list({ page: page + 1, pageSize, search: search.trim() || undefined, status: status || undefined, role: role || undefined }),
+    queryKey: ['users', apiParams, filters],
+    queryFn: () => usersApi.list({ ...apiParams, ...filters }),
     placeholderData: keepPreviousData,
   });
-  const roles = useRoles();
+  const peek = q.data?.data.find((u) => u.id === peekId) ?? null; // follows refetches after an action
 
   const statusAction = action && ['deactivate', 'activate', 'unlock'].includes(action.kind) ? action : null;
 
-  return (
-    <>
-      <PageHeader title="Users" subtitle="Sign-in accounts and their roles"
-        actions={<Can permission="user:manage"><Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)}>New user</Button></Can>} />
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 2 }}>
-        <TextField size="small" label="Search name or username" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} sx={{ minWidth: 260 }} />
-        <TextField size="small" select label="Status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }} sx={{ minWidth: 160 }}>
-          <MenuItem value="">All</MenuItem>
-          {['ACTIVE', 'INACTIVE', 'LOCKED'].map((s) => <MenuItem key={s} value={s}>{humanize(s)}</MenuItem>)}
-        </TextField>
-        <TextField size="small" select label="Role" value={role} onChange={(e) => { setRole(e.target.value); setPage(0); }} sx={{ minWidth: 220 }}>
-          <MenuItem value="">All roles</MenuItem>
-          {roles.map((r) => <MenuItem key={r.code} value={r.code}>{r.name}</MenuItem>)}
-        </TextField>
-      </Stack>
-      <ErrorAlert error={q.error} />
-      <Paper variant="outlined">
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Name</TableCell>
-                <TableCell>Username</TableCell>
-                <TableCell>Roles</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Last sign-in</TableCell>
-                <TableCell align="right" />
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {q.isLoading && <TableRow><TableCell colSpan={6}><Loading /></TableCell></TableRow>}
-              {q.data?.data.map((u) => (
-                <TableRow key={u.id} hover>
-                  <TableCell>{u.fullName}{u.mustChangePassword && <Typography variant="caption" color="text.secondary" component="div">Must change password</Typography>}</TableCell>
-                  <TableCell>{u.username}</TableCell>
-                  <TableCell>{u.roles.map(humanize).join(', ')}</TableCell>
-                  <TableCell><StatusChip status={u.status} label={humanize(u.status)} /></TableCell>
-                  <TableCell>{formatDateTime(u.lastLoginAt)}</TableCell>
-                  <TableCell align="right">
-                    <Can permission="user:manage">
-                      <IconButton aria-label={`Actions for ${u.username}`} onClick={(e) => setMenu({ anchor: e.currentTarget, user: u })}><MoreVertIcon /></IconButton>
-                    </Can>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {q.data && q.data.data.length === 0 && <TableRow><TableCell colSpan={6}><Typography color="text.secondary" sx={{ p: 2 }}>No users match.</Typography></TableCell></TableRow>}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        <TablePagination component="div" count={q.data?.meta.total ?? 0} page={page} rowsPerPage={pageSize}
-          onPageChange={(_, p) => setPage(p)} onRowsPerPageChange={(e) => { setPageSize(Number(e.target.value)); setPage(0); }} rowsPerPageOptions={[10, 25, 50, 100]} />
-      </Paper>
+  const columns: GridColDef<User>[] = [
+    {
+      field: 'fullName', headerName: 'Name', flex: 1, minWidth: 180,
+      renderCell: (p) => <Box sx={{ lineHeight: 1.3 }}>{p.row.fullName}{p.row.mustChangePassword && <Typography variant="caption" color="text.secondary" component="div">Must change password</Typography>}</Box>,
+    },
+    { field: 'username', headerName: 'Username', minWidth: 140 },
+    { field: 'roles', headerName: 'Roles', flex: 1, minWidth: 160, valueGetter: (_v, r) => r.roles.map(humanize).join(', ') },
+    col.status<User>('status', 'Status', 'user'),
+    col.dateTime<User>('lastLoginAt', 'Last sign-in'),
+  ];
 
-      <Menu anchorEl={menu?.anchor} open={!!menu} onClose={() => setMenu(null)}>
-        {menu && [
-          <MenuItem key="roles" onClick={() => { setAction({ kind: 'roles', user: menu.user }); setMenu(null); }}>Edit roles</MenuItem>,
-          <MenuItem key="reset" onClick={() => { setAction({ kind: 'reset', user: menu.user }); setMenu(null); }}>Reset password</MenuItem>,
-          menu.user.status === 'LOCKED' && <MenuItem key="unlock" onClick={() => { setAction({ kind: 'unlock', user: menu.user }); setMenu(null); }}>Unlock</MenuItem>,
-          menu.user.status === 'INACTIVE'
-            ? <MenuItem key="activate" onClick={() => { setAction({ kind: 'activate', user: menu.user }); setMenu(null); }}>Activate</MenuItem>
-            : <MenuItem key="deactivate" sx={{ color: 'error.main' }} onClick={() => { setAction({ kind: 'deactivate', user: menu.user }); setMenu(null); }}>Deactivate</MenuItem>,
-        ]}
-      </Menu>
+  return (
+    <ListTemplate
+      title="Users" subtitle="Sign-in accounts and their roles" error={q.error}
+      actions={<Can permission="user:manage"><Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)}>New user</Button></Can>}
+      filters={[
+        { type: 'search', key: 'search', label: 'Search name or username' },
+        { type: 'select', key: 'status', label: 'Status', options: STATUSES.map((s) => ({ value: s, label: humanize(s) })) },
+        { type: 'select', key: 'role', label: 'Role', options: roles.map((r) => ({ value: r.code, label: r.name })) },
+      ]}
+      quickView={{ open: Boolean(peek), title: peek?.fullName ?? '', onClose: () => setPeekId(null), children: peek && <UserSummary user={peek} onAction={setAction} /> }}
+    >
+      <DataTable label="Users" loading={q.isFetching} rows={q.data?.data ?? []} columns={columns}
+        server={{ state: table, rowCount: q.data?.meta.total ?? 0, sortFields: ['username', 'fullName', 'lastLoginAt'] }}
+        onRowClick={(u) => setPeekId(u.id)} empty={{ title: 'No users match', message: 'Change the filters or create a new user.' }} />
 
       <CreateUserDialog open={creating} onClose={() => setCreating(false)} />
       {action?.kind === 'roles' && <EditRolesDialog user={action.user} onClose={() => setAction(null)} />}
@@ -232,6 +223,6 @@ export function UsersPage() {
             await qc.invalidateQueries({ queryKey: ['users'] });
           }} />
       )}
-    </>
+    </ListTemplate>
   );
 }

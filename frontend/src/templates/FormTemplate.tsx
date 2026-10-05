@@ -30,6 +30,8 @@ export interface FormTemplateProps {
   children?: ReactNode;
   /** Long forms: a step-by-step wizard instead of `children`. */
   steps?: WizardStep[];
+  /** Live figures shown in the sticky bar next to Save (e.g. total weight and amount). */
+  summary?: ReactNode;
 }
 
 /** Two-column grid for SectionCards (one column on phones). Wide sections: `sx={{ gridColumn: '1 / -1' }}`. */
@@ -42,7 +44,7 @@ export function FormGrid({ children }: { children: ReactNode }) {
  * wizard for long forms; sticky Save bar; unsaved-changes warning. Inline field
  * validation comes from React Hook Form + Zod in the page.
  */
-export function FormTemplate({ title, subtitle, breadcrumbs, onSubmit, submitLabel = 'Save', busy, error, dirty, cancelTo, children, steps }: FormTemplateProps) {
+export function FormTemplate({ title, subtitle, breadcrumbs, onSubmit, submitLabel = 'Save', busy, error, dirty, cancelTo, children, steps, summary }: FormTemplateProps) {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -86,8 +88,10 @@ export function FormTemplate({ title, subtitle, breadcrumbs, onSubmit, submitLab
         }}
       >
         <ErrorAlert error={error} />
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
-          {dirty && <Typography variant="body2" color="text.secondary" sx={{ mr: 'auto' }}>Unsaved changes</Typography>}
+        <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          {summary
+            ? <Box sx={{ mr: 'auto', minWidth: 0 }}>{summary}</Box>
+            : dirty && <Typography variant="body2" color="text.secondary" sx={{ mr: 'auto' }}>Unsaved changes</Typography>}
           {cancelTo && <Button onClick={cancel} disabled={busy}>Cancel</Button>}
           {wizard && step > 0 && <Button variant="outlined" onClick={() => setStep((s) => s - 1)} disabled={busy}>Back</Button>}
           <Button type="submit" variant="contained" disabled={busy}>{busy ? 'Saving…' : last ? submitLabel : 'Next'}</Button>

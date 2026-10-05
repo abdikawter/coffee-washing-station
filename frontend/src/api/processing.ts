@@ -116,7 +116,7 @@ export interface Reconciliation {
 export interface CaResult { mode: 'AUTO_CREATE' | 'RECOMMEND'; correctiveAction: { id: string; caNumber: string } | null }
 
 export const lotsApi = {
-  list: (q: { page: number; pageSize: number; stage?: string; status?: string; type?: string; search?: string }) =>
+  list: (q: { page: number; pageSize: number; sort?: string; stage?: string; status?: string; type?: string; search?: string }) =>
     http.get<Page<Lot>>('/lots', { params: clean(q) }).then((r) => r.data),
   board: () => http.get<Data<{ stages: { stage: LotStage; lots: BoardLot[] }[] }>>('/lots/board').then((r) => r.data.data.stages),
   get: (id: string) => http.get<Data<LotDetail>>(`/lots/${id}`).then((r) => r.data.data),

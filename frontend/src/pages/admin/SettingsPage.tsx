@@ -1,6 +1,6 @@
 import {
-  Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Paper, Stack, Switch, Tab, Table, TableBody,
-  TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Typography,
+  Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, List, ListItem, MenuItem, Stack, Switch, Tab, Tabs,
+  TextField, Typography,
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
@@ -8,7 +8,8 @@ import { useSearchParams } from 'react-router-dom';
 import { settingsApi } from '../../api/endpoints';
 import type { Setting } from '../../api/types';
 import { useAuth } from '../../auth/useAuth';
-import { ErrorAlert, Loading, PageHeader, StatusChip } from '../../components/common';
+import { EmptyState, ErrorAlert, Loading, SectionCard, StatusChip } from '../../components';
+import { ListTemplate } from '../../templates';
 import { formatDateTime, formatSettingValue, humanize } from '../../utils/format';
 
 function parseInput(s: Setting, raw: string, bool: boolean): { ok: true; value: unknown } | { ok: false; message: string } {
@@ -44,7 +45,7 @@ function EditSettingDialog({ setting, onClose }: { setting: Setting; onClose: ()
   const canConfirmOnly = setting.value !== null && (setting.source === 'PROVISIONAL' || setting.source === 'UNSET');
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>{setting.key}</DialogTitle>
+      <DialogTitle sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{setting.key}</DialogTitle>
       <DialogContent>
         <Typography color="text.secondary" sx={{ mb: 2 }}>{setting.description}</Typography>
         <ErrorAlert error={m.error} />
@@ -75,57 +76,68 @@ function EditSettingDialog({ setting, onClose }: { setting: Setting; onClose: ()
   );
 }
 
-/** System settings (ARCHITECTURE.md §20): MANUAL / PROVISIONAL / UNSET / CONFIRMED. */
+const toConfirm = (s: Setting) => s.source === 'PROVISIONAL' || s.source === 'UNSET';
+
+/** System settings (ARCHITECTURE.md §20): MANUAL / PROVISIONAL / UNSET / CONFIRMED, grouped by category. */
 export function SettingsPage() {
   const { can } = useAuth();
   const [params, setParams] = useSearchParams();
   const tab = params.get('filter') === 'unconfirmed' ? 'unconfirmed' : 'all';
+  const search = (params.get('search') ?? '').trim().toLowerCase();
   const q = useQuery({ queryKey: ['settings', 'all'], queryFn: settingsApi.list });
   const [editing, setEditing] = useState<Setting | null>(null);
 
-  const rows = useMemo(() => (q.data ?? []).filter((s) => tab === 'all' || s.source === 'PROVISIONAL' || s.source === 'UNSET'), [q.data, tab]);
+  const groups = useMemo(() => {
+    const rows = (q.data ?? []).filter((s) => (tab === 'all' || toConfirm(s))
+      && (!search || s.key.toLowerCase().includes(search) || s.description.toLowerCase().includes(search)));
+    const map = new Map<string, Setting[]>();
+    for (const s of rows) map.set(s.category, [...(map.get(s.category) ?? []), s]);
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [q.data, tab, search]);
+  const pending = (q.data ?? []).filter(toConfirm).length;
   const canEdit = (s: Setting) => (s.isSystem ? can('settings:manage-system') : can(['settings:manage', 'settings:manage-system']));
 
+  const setTab = (v: string) => setParams((prev) => {
+    const next = new URLSearchParams(prev);
+    if (v === 'all') next.delete('filter'); else next.set('filter', v);
+    return next;
+  }, { replace: true });
+
   return (
-    <>
-      <PageHeader title="Settings" subtitle="Thresholds and policies. Values taken from the manual are marked MANUAL; engineering defaults stay PROVISIONAL until confirmed." />
-      <Tabs value={tab} onChange={(_, v) => setParams(v === 'all' ? {} : { filter: v })} sx={{ mb: 2 }}>
+    <ListTemplate title="Settings" subtitle="Thresholds and policies. Values from the manual are MANUAL; engineering defaults stay PROVISIONAL until confirmed."
+      filters={[{ type: 'search', key: 'search', label: 'Search settings' }]} error={q.error}>
+      <Tabs value={tab} onChange={(_, v: string) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
         <Tab value="all" label="All" />
-        <Tab value="unconfirmed" label={`To confirm (${(q.data ?? []).filter((s) => s.source === 'PROVISIONAL' || s.source === 'UNSET').length})`} />
+        <Tab value="unconfirmed" label={`To confirm (${pending})`} />
       </Tabs>
-      <ErrorAlert error={q.error} />
-      {q.isLoading ? <Loading /> : (
-        <Paper variant="outlined">
-          <TableContainer>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Setting</TableCell>
-                  <TableCell>Value</TableCell>
-                  <TableCell>Source</TableCell>
-                  <TableCell>Updated</TableCell>
-                  <TableCell />
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((s) => (
-                  <TableRow key={s.key} hover>
-                    <TableCell sx={{ maxWidth: 480 }}>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{s.key}</Typography>
-                      <Typography variant="caption" color="text.secondary">{s.description}</Typography>
-                    </TableCell>
-                    <TableCell sx={{ fontFamily: 'monospace', maxWidth: 260, wordBreak: 'break-word' }}>{formatSettingValue(s.value)}</TableCell>
-                    <TableCell><StatusChip status={s.source} label={humanize(s.source)} />{s.isSystem && <Typography variant="caption" component="div" color="text.secondary">system</Typography>}</TableCell>
-                    <TableCell>{formatDateTime(s.updatedAt)}</TableCell>
-                    <TableCell align="right">{canEdit(s) && <Button size="small" onClick={() => setEditing(s)}>Edit</Button>}</TableCell>
-                  </TableRow>
+      {q.isLoading ? <Loading /> : groups.length === 0 ? (
+        <EmptyState title={tab === 'unconfirmed' ? 'Every setting is confirmed' : 'No settings match'} />
+      ) : (
+        <Stack spacing={3}>
+          {groups.map(([category, settings]) => (
+            <SectionCard key={category} title={humanize(category)} subtitle={`${settings.length} setting${settings.length === 1 ? '' : 's'}`} disablePadding>
+              <List disablePadding>
+                {settings.map((s) => (
+                  <ListItem key={s.key} divider sx={{ px: 2.5, py: 1.5, alignItems: 'flex-start', gap: 2, flexWrap: { xs: 'wrap', md: 'nowrap' } }}>
+                    <Box sx={{ flex: '1 1 320px', minWidth: 0 }}>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600, wordBreak: 'break-all' }}>{s.key}</Typography>
+                      <Typography variant="caption" color="text.secondary" component="div">{s.description}</Typography>
+                      <Typography variant="caption" color="text.secondary" component="div">Updated {formatDateTime(s.updatedAt)}</Typography>
+                    </Box>
+                    <Typography variant="body2" sx={{ flex: '0 1 220px', fontFamily: 'monospace', wordBreak: 'break-word' }}>{formatSettingValue(s.value)}</Typography>
+                    <Stack direction="row" spacing={1} sx={{ flex: '0 0 auto', alignItems: 'center' }}>
+                      <StatusChip status={s.source} domain="settingSource" />
+                      {s.isSystem && <Chip size="small" variant="outlined" label="System" />}
+                      {canEdit(s) && <Button size="small" onClick={() => setEditing(s)} aria-label={`Edit ${s.key}`}>Edit</Button>}
+                    </Stack>
+                  </ListItem>
                 ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </Paper>
+              </List>
+            </SectionCard>
+          ))}
+        </Stack>
       )}
       {editing && <EditSettingDialog setting={editing} onClose={() => setEditing(null)} />}
-    </>
+    </ListTemplate>
   );
 }

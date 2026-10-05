@@ -199,6 +199,29 @@ describe('single super admin (no segregation of duties)', () => {
   });
 });
 
+describe('dashboard summary', () => {
+  it('counts today\'s kg and paid amount, and returns the last 14 days', async () => {
+    const summary = async () => (await api().get('/api/v1/purchases/summary').set(bearer(readOnly.token))).body.data;
+    const before = await summary();
+    const v = await approvedVoucher();
+    let p = (await api().post('/api/v1/payments').set(bearer(cashier.token)).send({ voucherId: v.id, method: 'CASH' })).body.data;
+    if (p.status === 'PENDING_APPROVAL') p = (await command(`/payments/${p.id}/approve`, manager)).body.data;
+    expect((await command(`/payments/${p.id}/disburse`, cashier)).body.data.status).toBe('PAID');
+    const after = await summary();
+
+    expect(Number(after.todayKg) - Number(before.todayKg)).toBeCloseTo(89.3, 3); // (50.1 − 0.5) + (40.2 − 0.5)
+    expect(Number(after.paidTodayAmount) - Number(before.paidTodayAmount)).toBeCloseTo(Number(v.totalAmount), 2);
+    expect(after.paidTodayCount).toBe(before.paidTodayCount + 1);
+    expect(after.yesterdayKg).toMatch(/^\d+\.\d{3}$/);
+    expect(after.daily).toHaveLength(14);
+    const last = after.daily.at(-1);
+    expect(last.date).toBe(after.date);
+    expect(last.kg).toBe(after.todayKg);
+    expect(Number(last.avgPricePerKg)).toBeGreaterThan(0);
+    expect(after.daily[0].date < last.date).toBe(true);
+  });
+});
+
 describe('payments', () => {
   it('two parallel payments for one voucher → exactly one succeeds', async () => {
     const v = await approvedVoucher();

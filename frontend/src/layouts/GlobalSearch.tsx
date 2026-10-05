@@ -46,8 +46,7 @@ export function useGlobalSearch(term: string) {
   const hits: SearchHit[] = enabled ? [
     ...(lots.data?.data ?? []).map((l) => ({ group: 'Lots' as const, id: l.id, label: l.lotNumber, detail: `${humanize(l.currentStage)} · ${humanize(l.status)}`, to: `/lots/${l.id}` })),
     ...(vouchers.data?.data ?? []).map((v) => ({ group: 'Purchase vouchers' as const, id: v.id, label: v.voucherNo, detail: `${v.supplierName} · ${v.voucherDate}`, to: `/purchases/${v.id}` })),
-    // No supplier page yet (step 6 adds the profile): open the list filtered to this supplier.
-    ...(suppliers.data?.data ?? []).map((s) => ({ group: 'Suppliers' as const, id: s.id, label: s.fullName, detail: s.supplierCode, to: `/suppliers?search=${encodeURIComponent(s.supplierCode)}` })),
+    ...(suppliers.data?.data ?? []).map((s) => ({ group: 'Suppliers' as const, id: s.id, label: s.fullName, detail: s.supplierCode, to: `/suppliers/${s.id}` })),
   ] : [];
   const loading = enabled && (q !== term.trim() || lots.isFetching || vouchers.isFetching || suppliers.isFetching);
   return { hits, loading, ready: enabled };

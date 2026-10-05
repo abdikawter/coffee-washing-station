@@ -1,6 +1,6 @@
 import type { Principal } from '../api/types';
 import { visibleNav } from '../navigation';
-import { add, formatNumber, isDecimal, multiplyMoney, subtract } from '../utils/decimal';
+import { add, formatNumber, isDecimal, multiplyMoney, percentChange, subtract } from '../utils/decimal';
 
 describe('decimal previews (never floats)', () => {
   it('computes net weights and totals exactly', () => {
@@ -29,6 +29,13 @@ describe('decimal previews (never floats)', () => {
     expect(formatNumber('62.456', 1)).toBe('62.5');
     expect(formatNumber('-0.005', 2)).toBe('-0.01');
     expect(formatNumber('1.004', 2)).toBe('1.00');
+  });
+
+  it('computes percent change exactly', () => {
+    expect(percentChange('1200', '1000')).toBe('20.0');
+    expect(percentChange('875.5', '1000')).toBe('-12.5'); // −12.45 rounds away from zero
+    expect(percentChange('1', '3')).toBe('-66.7');
+    expect(percentChange('5', '0')).toBeNull();
   });
 });
 

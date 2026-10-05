@@ -27,6 +27,12 @@ export function subtract(a: string, b: string, dp = 3): string {
   return fromScaled(toScaled(a, dp) - toScaled(b, dp), dp);
 }
 
+/** -1, 0 or 1 as a is less than, equal to or greater than b (exact, at `dp` places). */
+export function compare(a: string, b: string, dp = 3): -1 | 0 | 1 {
+  const d = toScaled(a, dp) - toScaled(b, dp);
+  return d < 0n ? -1 : d > 0n ? 1 : 0;
+}
+
 export function add(values: string[], dp = 3): string {
   return fromScaled(values.reduce((acc, v) => acc + toScaled(v, dp), 0n), dp);
 }
@@ -38,6 +44,20 @@ export function multiplyMoney(weightKg: string, price: string): string {
   const abs = neg ? -product : product;
   const rounded = (abs + 500n) / 1000n; // to scale 10^2, half up
   return fromScaled(neg ? -rounded : rounded, 2);
+}
+
+/**
+ * Change of `current` vs `previous` in percent, 1 dp, rounded half away from zero
+ * ("-12.5"). Null when there is no previous value to compare with.
+ */
+export function percentChange(current: string, previous: string): string | null {
+  const p = toScaled(previous, 3);
+  if (p === 0n) return null;
+  const diff = (toScaled(current, 3) - p) * 1000n; // × 100 (percent) × 10 (1 dp)
+  const neg = (diff < 0n) !== (p < 0n);
+  const [n, d] = [diff < 0n ? -diff : diff, p < 0n ? -p : p];
+  const rounded = (n * 2n + d) / (2n * d);
+  return fromScaled(neg ? -rounded : rounded, 1);
 }
 
 /** "12345.5" → "12,345.50" for display. */

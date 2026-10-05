@@ -1,26 +1,25 @@
 import AddIcon from '@mui/icons-material/Add';
-import {
-  Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead,
-  TablePagination, TableRow, TextField, Typography,
-} from '@mui/material';
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField } from '@mui/material';
+import type { GridColDef } from '@mui/x-data-grid';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { equipmentApi, EQUIPMENT_TYPES, MAINTENANCE_TYPES, type Equipment, type EquipmentStatus } from '../../api/procurement';
+import { useNavigate, useParams } from 'react-router-dom';
+import { equipmentApi, EQUIPMENT_TYPES, MAINTENANCE_TYPES, type Equipment, type EquipmentStatus, type Maintenance, type Schedule } from '../../api/procurement';
 import { Can } from '../../auth/Can';
-import { ErrorAlert, Loading, PageHeader, StatusChip } from '../../components/common';
-import { ReasonDialog } from '../../components/ReasonDialog';
-import { SimpleTable } from '../../components/SimpleTable';
+import { useAuth } from '../../auth/useAuth';
+import { columns as col, DataTable, ErrorAlert, ReasonDialog, SectionCard, StatusChip, useTableQuery, useUrlFilters } from '../../components';
+import { DetailTemplate, ListTemplate } from '../../templates';
 import { formatDateTime, humanize } from '../../utils/format';
 
 const NON_SCALE_TYPES = EQUIPMENT_TYPES.filter((t) => t !== 'SCALE');
 const STATUSES: EquipmentStatus[] = ['OPERATIONAL', 'UNDER_MAINTENANCE', 'OUT_OF_SERVICE', 'DECOMMISSIONED'];
 
-function NewEquipmentDialog({ onClose }: { onClose: () => void }) {
+function NewEquipmentDialog({ onClose, onCreated }: { onClose: () => void; onCreated?: (e: Equipment) => void }) {
   const qc = useQueryClient();
   const [f, setF] = useState({ code: '', name: '', type: 'PULPING_MACHINE', location: '', serialNo: '' });
   const m = useMutation({
     mutationFn: () => equipmentApi.create({ ...f, location: f.location.trim() || null, serialNo: f.serialNo.trim() || null }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['equipment'] }); onClose(); },
+    onSuccess: (created) => { qc.invalidateQueries({ queryKey: ['equipment'] }); onClose(); onCreated?.(created); },
   });
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="xs">
@@ -45,109 +44,148 @@ function NewEquipmentDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-function EquipmentDetail({ item, onClose }: { item: Equipment; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [statusTo, setStatusTo] = useState<EquipmentStatus | ''>('');
-  const [mt, setMt] = useState({ type: 'CLEANING', description: '', result: '' });
-  const [sched, setSched] = useState({ type: 'PREVENTIVE', intervalDays: '30' });
-  const maintenance = useQuery({ queryKey: ['equipment', item.id, 'maintenance'], queryFn: () => equipmentApi.maintenance(item.id) });
-  const schedules = useQuery({ queryKey: ['equipment', item.id, 'schedules'], queryFn: () => equipmentApi.schedules(item.id) });
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['equipment'] });
-  const record = useMutation({
-    mutationFn: () => equipmentApi.recordMaintenance(item.id, { type: mt.type, description: mt.description, result: (mt.result || null) as 'PASS' | 'FAIL' | null }),
-    onSuccess: () => { setMt({ ...mt, description: '', result: '' }); invalidate(); },
+/** Equipment register (scales have their own page); each row opens the machine's page. */
+export function EquipmentPage() {
+  const navigate = useNavigate();
+  const { table, apiParams } = useTableQuery();
+  const { get } = useUrlFilters();
+  const [creating, setCreating] = useState(false);
+  const filters = { type: get('type') || undefined, status: get('status') || undefined, search: get('search') || undefined };
+  const q = useQuery({
+    queryKey: ['equipment', apiParams, filters],
+    queryFn: () => equipmentApi.list({ ...apiParams, ...filters }),
+    placeholderData: keepPreviousData,
   });
-  const addSchedule = useMutation({
-    mutationFn: () => equipmentApi.createSchedule(item.id, { type: sched.type, intervalDays: Number(sched.intervalDays) }),
-    onSuccess: invalidate,
-  });
+  const columns: GridColDef<Equipment>[] = [
+    { field: 'code', headerName: 'Code', minWidth: 120 },
+    { field: 'name', headerName: 'Name', flex: 1, minWidth: 180 },
+    { field: 'type', headerName: 'Type', minWidth: 160, valueFormatter: (v: string) => humanize(v) },
+    { field: 'location', headerName: 'Location', minWidth: 140 },
+    col.dateTime<Equipment>('nextMaintenanceDueAt', 'Next maintenance'),
+    col.status<Equipment>('status', 'Status', 'equipment'),
+  ];
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="md">
-      <DialogTitle>{item.code} · {item.name} <StatusChip status={item.status} label={humanize(item.status)} /></DialogTitle>
-      <DialogContent dividers>
-        <ErrorAlert error={maintenance.error ?? schedules.error ?? record.error ?? addSchedule.error} />
-        <Typography variant="subtitle2" gutterBottom>Maintenance schedules</Typography>
-        <SimpleTable rows={schedules.data ?? []} cols={[['type', 'Type'], ['intervalDays', 'Every (days)'], ['lastPerformedAt', 'Last done'], ['nextDueAt', 'Next due']]} />
-        <Can permission="equipment:manage">
-          <Stack direction="row" spacing={1} sx={{ my: 2 }}>
-            <TextField size="small" select label="Type" value={sched.type} onChange={(e) => setSched({ ...sched, type: e.target.value })} sx={{ minWidth: 160 }}>
-              {MAINTENANCE_TYPES.map((t) => <MenuItem key={t} value={t}>{humanize(t)}</MenuItem>)}
-            </TextField>
-            <TextField size="small" label="Every (days)" value={sched.intervalDays} onChange={(e) => setSched({ ...sched, intervalDays: e.target.value })} sx={{ maxWidth: 120 }} />
-            <Button disabled={!/^\d+$/.test(sched.intervalDays) || addSchedule.isPending} onClick={() => addSchedule.mutate()}>Add schedule</Button>
-          </Stack>
-        </Can>
-        <Typography variant="subtitle2" gutterBottom sx={{ mt: 2 }}>Maintenance history</Typography>
-        <SimpleTable rows={maintenance.data ?? []} cols={[['performedAt', 'When'], ['type', 'Type'], ['description', 'Work done'], ['result', 'Result'], ['performedByName', 'By']]} />
-        <Can permission="equipment:maintenance-record">
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mt: 2 }}>
-            <TextField size="small" select label="Type" value={mt.type} onChange={(e) => setMt({ ...mt, type: e.target.value })} sx={{ minWidth: 150 }}>
-              {MAINTENANCE_TYPES.map((t) => <MenuItem key={t} value={t}>{humanize(t)}</MenuItem>)}
-            </TextField>
-            <TextField size="small" label="Work done" value={mt.description} onChange={(e) => setMt({ ...mt, description: e.target.value })} sx={{ flexGrow: 1 }} />
-            <TextField size="small" select label="Result" value={mt.result} onChange={(e) => setMt({ ...mt, result: e.target.value })} sx={{ minWidth: 110 }}>
-              <MenuItem value="">—</MenuItem><MenuItem value="PASS">Pass</MenuItem><MenuItem value="FAIL">Fail</MenuItem>
-            </TextField>
-            <Button variant="outlined" disabled={mt.description.trim().length < 3 || record.isPending} onClick={() => record.mutate()}>Record</Button>
-          </Stack>
-        </Can>
-      </DialogContent>
-      <DialogActions>
-        <Can permission="equipment:manage">
-          <TextField size="small" select label="Change status" value={statusTo} onChange={(e) => setStatusTo(e.target.value as EquipmentStatus)} sx={{ minWidth: 200 }}>
-            {STATUSES.filter((s) => s !== item.status).map((s) => <MenuItem key={s} value={s}>{humanize(s)}</MenuItem>)}
-          </TextField>
-        </Can>
-        <Button variant="contained" onClick={onClose}>Close</Button>
-      </DialogActions>
-      {statusTo && (
-        <ReasonDialog open title={`Set ${item.code} to ${humanize(statusTo)}`} confirmLabel="Change status" onClose={() => setStatusTo('')}
-          onConfirm={async (reason) => { await equipmentApi.update(item.id, { status: statusTo, reason }); await invalidate(); onClose(); }} />
-      )}
-    </Dialog>
+    <ListTemplate title="Equipment" subtitle="Machines, maintenance records and schedules" error={q.error}
+      actions={<Can permission="equipment:manage"><Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)}>Register equipment</Button></Can>}
+      filters={[
+        { type: 'search', key: 'search', label: 'Search code or name' },
+        { type: 'select', key: 'type', label: 'Type', options: EQUIPMENT_TYPES.map((t) => ({ value: t, label: humanize(t) })) },
+        { type: 'select', key: 'status', label: 'Status', options: STATUSES.map((t) => ({ value: t, label: humanize(t) })) },
+      ]}>
+      <DataTable label="Equipment" loading={q.isFetching} rows={q.data?.data ?? []} columns={columns}
+        server={{ state: table, rowCount: q.data?.meta.total ?? 0, sortFields: ['code', 'name', 'type'] }}
+        rowTo={(e) => `/equipment/${e.id}`} empty={{ title: 'No equipment registered', message: 'Register pulpers, tanks and other machines here.' }} />
+      {creating && <NewEquipmentDialog onClose={() => setCreating(false)} onCreated={(e) => navigate(`/equipment/${e.id}`)} />}
+    </ListTemplate>
   );
 }
 
-/** Equipment register, maintenance and schedules (scales have their own page). */
-export function EquipmentPage() {
-  const [page, setPage] = useState(0);
-  const [type, setType] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [open, setOpen] = useState<Equipment | null>(null);
-  const q = useQuery({
-    queryKey: ['equipment', { page, type }],
-    queryFn: () => equipmentApi.list({ page: page + 1, pageSize: 25, type: type || undefined }),
-    placeholderData: keepPreviousData,
+/** One machine: details, maintenance history and schedules (detail template). */
+export function EquipmentDetailPage() {
+  const { id = '' } = useParams();
+  const qc = useQueryClient();
+  const { can } = useAuth();
+  const [statusTo, setStatusTo] = useState<EquipmentStatus | ''>('');
+  const [mt, setMt] = useState({ type: 'CLEANING', description: '', result: '' });
+  const [sched, setSched] = useState({ type: 'PREVENTIVE', intervalDays: '30' });
+  const item = useQuery({ queryKey: ['equipment', id], queryFn: () => equipmentApi.get(id) });
+  const maintenance = useQuery({ queryKey: ['equipment', id, 'maintenance'], queryFn: () => equipmentApi.maintenance(id) });
+  const schedules = useQuery({ queryKey: ['equipment', id, 'schedules'], queryFn: () => equipmentApi.schedules(id) });
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['equipment'] });
+  const record = useMutation({
+    mutationFn: () => equipmentApi.recordMaintenance(id, { type: mt.type, description: mt.description, result: (mt.result || null) as 'PASS' | 'FAIL' | null }),
+    onSuccess: () => { setMt({ ...mt, description: '', result: '' }); invalidate(); },
   });
+  const addSchedule = useMutation({
+    mutationFn: () => equipmentApi.createSchedule(id, { type: sched.type, intervalDays: Number(sched.intervalDays) }),
+    onSuccess: invalidate,
+  });
+  const e = item.data;
+
+  const maintenanceCols: GridColDef<Maintenance>[] = [
+    col.dateTime<Maintenance>('performedAt', 'When'),
+    { field: 'type', headerName: 'Type', minWidth: 140, valueFormatter: (v: string) => humanize(v) },
+    { field: 'description', headerName: 'Work done', flex: 1, minWidth: 220 },
+    col.status<Maintenance>('result', 'Result', 'checkResult', { minWidth: 100 }),
+    { field: 'performedByName', headerName: 'By', minWidth: 140 },
+  ];
+  const scheduleCols: GridColDef<Schedule>[] = [
+    { field: 'type', headerName: 'Type', minWidth: 140, valueFormatter: (v: string) => humanize(v) },
+    { field: 'intervalDays', headerName: 'Every (days)', type: 'number', minWidth: 120 },
+    col.dateTime<Schedule>('lastPerformedAt', 'Last done'),
+    col.dateTime<Schedule>('nextDueAt', 'Next due'),
+  ];
+
   return (
     <>
-      <PageHeader title="Equipment" subtitle="Machines, maintenance records and schedules"
-        actions={<Can permission="equipment:manage"><Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)}>Register equipment</Button></Can>} />
-      <TextField size="small" select label="Type" value={type} onChange={(e) => { setType(e.target.value); setPage(0); }} sx={{ minWidth: 200, mb: 2 }}>
-        <MenuItem value="">All</MenuItem>
-        {EQUIPMENT_TYPES.map((t) => <MenuItem key={t} value={t}>{humanize(t)}</MenuItem>)}
-      </TextField>
-      <ErrorAlert error={q.error} />
-      <Paper variant="outlined">
-        <TableContainer>
-          <Table size="small">
-            <TableHead><TableRow><TableCell>Code</TableCell><TableCell>Name</TableCell><TableCell>Type</TableCell><TableCell>Location</TableCell><TableCell>Next maintenance</TableCell><TableCell>Status</TableCell></TableRow></TableHead>
-            <TableBody>
-              {q.isLoading && <TableRow><TableCell colSpan={6}><Loading /></TableCell></TableRow>}
-              {q.data?.data.map((e) => (
-                <TableRow key={e.id} hover sx={{ cursor: 'pointer' }} onClick={() => setOpen(e)}>
-                  <TableCell>{e.code}</TableCell><TableCell>{e.name}</TableCell><TableCell>{humanize(e.type)}</TableCell>
-                  <TableCell>{e.location ?? '—'}</TableCell><TableCell>{formatDateTime(e.nextMaintenanceDueAt)}</TableCell>
-                  <TableCell><StatusChip status={e.status} label={humanize(e.status)} /></TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        <TablePagination component="div" count={q.data?.meta.total ?? 0} page={page} rowsPerPage={25} rowsPerPageOptions={[25]} onPageChange={(_, p) => setPage(p)} />
-      </Paper>
-      {creating && <NewEquipmentDialog onClose={() => setCreating(false)} />}
-      {open && <EquipmentDetail item={open} onClose={() => setOpen(null)} />}
+      <DetailTemplate
+        title={e ? `${e.code} · ${e.name}` : 'Equipment'}
+        breadcrumbs={[{ label: 'Equipment', to: '/equipment' }, { label: e?.code ?? '…' }]}
+        status={e && <StatusChip status={e.status} domain="equipment" />}
+        loading={item.isLoading}
+        error={item.error}
+        actions={e && can('equipment:manage') && (
+          <TextField size="small" select label="Change status" value={statusTo} onChange={(ev) => setStatusTo(ev.target.value as EquipmentStatus)} sx={{ minWidth: 200 }}>
+            {STATUSES.filter((x) => x !== e.status).map((x) => <MenuItem key={x} value={x}>{humanize(x)}</MenuItem>)}
+          </TextField>
+        )}
+        figures={e ? [
+          { label: 'Type', value: humanize(e.type) },
+          { label: 'Location', value: e.location },
+          { label: 'Serial number', value: e.serialNo },
+          { label: 'Next maintenance', value: formatDateTime(e.nextMaintenanceDueAt) },
+        ] : []}
+        tabs={[
+          {
+            key: 'maintenance', label: 'Maintenance', count: maintenance.data?.length,
+            content: (
+              <Stack spacing={2}>
+                <ErrorAlert error={maintenance.error ?? record.error} />
+                <Can permission="equipment:maintenance-record">
+                  <SectionCard title="Record maintenance">
+                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
+                      <TextField size="small" select label="Type" value={mt.type} onChange={(ev) => setMt({ ...mt, type: ev.target.value })} sx={{ minWidth: 150 }}>
+                        {MAINTENANCE_TYPES.map((t) => <MenuItem key={t} value={t}>{humanize(t)}</MenuItem>)}
+                      </TextField>
+                      <TextField size="small" label="Work done" value={mt.description} onChange={(ev) => setMt({ ...mt, description: ev.target.value })} sx={{ flexGrow: 1 }} />
+                      <TextField size="small" select label="Result" value={mt.result} onChange={(ev) => setMt({ ...mt, result: ev.target.value })} sx={{ minWidth: 110 }}>
+                        <MenuItem value="">—</MenuItem><MenuItem value="PASS">Pass</MenuItem><MenuItem value="FAIL">Fail</MenuItem>
+                      </TextField>
+                      <Button variant="contained" disabled={mt.description.trim().length < 3 || record.isPending} onClick={() => record.mutate()}>Record</Button>
+                    </Stack>
+                  </SectionCard>
+                </Can>
+                <DataTable label="Maintenance history" loading={maintenance.isLoading} rows={maintenance.data ?? []} columns={maintenanceCols} empty={{ title: 'No maintenance recorded yet' }} />
+              </Stack>
+            ),
+          },
+          {
+            key: 'schedules', label: 'Schedules', count: schedules.data?.length,
+            content: (
+              <Stack spacing={2}>
+                <ErrorAlert error={schedules.error ?? addSchedule.error} />
+                <Can permission="equipment:manage">
+                  <SectionCard title="Add schedule">
+                    <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                      <TextField size="small" select label="Type" value={sched.type} onChange={(ev) => setSched({ ...sched, type: ev.target.value })} sx={{ minWidth: 160 }}>
+                        {MAINTENANCE_TYPES.map((t) => <MenuItem key={t} value={t}>{humanize(t)}</MenuItem>)}
+                      </TextField>
+                      <TextField size="small" label="Every (days)" value={sched.intervalDays} onChange={(ev) => setSched({ ...sched, intervalDays: ev.target.value })} sx={{ maxWidth: 140 }}
+                        slotProps={{ htmlInput: { inputMode: 'numeric' } }} />
+                      <Button variant="contained" disabled={!/^\d+$/.test(sched.intervalDays) || addSchedule.isPending} onClick={() => addSchedule.mutate()}>Add schedule</Button>
+                    </Stack>
+                  </SectionCard>
+                </Can>
+                <DataTable label="Maintenance schedules" loading={schedules.isLoading} rows={schedules.data ?? []} columns={scheduleCols} empty={{ title: 'No schedules yet' }} />
+              </Stack>
+            ),
+          },
+        ]}
+      />
+      {statusTo && e && (
+        <ReasonDialog open title={`Set ${e.code} to ${humanize(statusTo)}`} confirmLabel="Change status" onClose={() => setStatusTo('')}
+          onConfirm={async (reason) => { await equipmentApi.update(e.id, { status: statusTo, reason }); await invalidate(); }} />
+      )}
     </>
   );
 }

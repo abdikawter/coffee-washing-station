@@ -1,18 +1,17 @@
 import AddIcon from '@mui/icons-material/Add';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import ErrorIcon from '@mui/icons-material/Error';
 import {
-  Alert, Button, Card, CardActions, CardContent, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Grid, MenuItem,
+  Alert, Box, Button, Card, CardActions, CardContent, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem,
   Radio, RadioGroup, Stack, TextField, Typography,
 } from '@mui/material';
+import type { GridColDef } from '@mui/x-data-grid';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { scalesApi, type Scale } from '../../api/procurement';
+import { scalesApi, type Calibration, type Scale } from '../../api/procurement';
 import { settingsApi } from '../../api/endpoints';
 import { Can } from '../../auth/Can';
 import { useAuth } from '../../auth/useAuth';
-import { ErrorAlert, Field, Loading, PageHeader, StatusChip } from '../../components/common';
-import { SimpleTable } from '../../components/SimpleTable';
+import { columns as col, DataTable, EmptyState, ErrorAlert, Field, Loading, StatusChip, WeightText } from '../../components';
+import { ListTemplate } from '../../templates';
 import { isDecimal, subtract } from '../../utils/decimal';
 import { formatDateTime, humanize } from '../../utils/format';
 
@@ -82,14 +81,22 @@ function VerifyDialog({ scale, toleranceSet, onClose }: { scale: Scale; toleranc
 
 function HistoryDialog({ scale, onClose }: { scale: Scale; onClose: () => void }) {
   const q = useQuery({ queryKey: ['scales', scale.id, 'calibrations'], queryFn: () => scalesApi.calibrations(scale.id) });
+  const columns: GridColDef<Calibration>[] = [
+    col.dateTime<Calibration>('calibratedAt', 'When'),
+    { field: 'type', headerName: 'Type', minWidth: 150, valueFormatter: (v: string) => humanize(v) },
+    col.weight<Calibration>('standardWeightKg', 'Standard (kg)'),
+    col.weight<Calibration>('readingKg', 'Reading (kg)'),
+    col.weight<Calibration>('deviationKg', 'Deviation (kg)'),
+    col.status<Calibration>('result', 'Result', 'checkResult', { minWidth: 100 }),
+    { field: 'performedByName', headerName: 'By', minWidth: 140 },
+    { field: 'caNumber', headerName: 'Corrective action', minWidth: 150 },
+  ];
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="md">
+    <Dialog open onClose={onClose} fullWidth maxWidth="lg">
       <DialogTitle>{scale.code} — verification history</DialogTitle>
       <DialogContent>
         <ErrorAlert error={q.error} />
-        {q.isLoading ? <Loading /> : (
-          <SimpleTable rows={q.data ?? []} cols={[['calibratedAt', 'When'], ['type', 'Type'], ['standardWeightKg', 'Standard'], ['readingKg', 'Reading'], ['deviationKg', 'Deviation'], ['result', 'Result'], ['performedByName', 'By'], ['caNumber', 'CA']]} />
-        )}
+        <DataTable label={`${scale.code} verification history`} loading={q.isLoading} rows={q.data ?? []} columns={columns} empty={{ title: 'No checks yet' }} />
       </DialogContent>
       <DialogActions><Button onClick={onClose}>Close</Button></DialogActions>
     </Dialog>
@@ -123,7 +130,13 @@ function NewScaleDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Scale status board + daily verification [MANUAL: daily]. */
+/** What the board shows for a scale: usable now, due for its check, or out of service. */
+export function scaleCheck(s: Scale): 'VERIFIED' | 'DUE' | 'OUT_OF_SERVICE' {
+  if (s.status === 'OUT_OF_SERVICE' || s.status === 'DECOMMISSIONED' || s.verification.reason === 'OUT_OF_SERVICE') return 'OUT_OF_SERVICE';
+  return s.verification.verified ? 'VERIFIED' : 'DUE';
+}
+
+/** Scale status board (spec §7) + daily verification [MANUAL: daily]. */
 export function ScalesPage() {
   const { can } = useAuth();
   const q = useQuery({ queryKey: ['scales'], queryFn: scalesApi.list, refetchInterval: 60_000 });
@@ -132,45 +145,47 @@ export function ScalesPage() {
   const [history, setHistory] = useState<Scale | null>(null);
   const [creating, setCreating] = useState(false);
   const unverified = q.data?.filter((s) => !s.verification.verified).length ?? 0;
+  const tone = { VERIFIED: 'success.main', DUE: 'warning.main', OUT_OF_SERVICE: 'error.main' } as const;
 
   return (
-    <>
-      <PageHeader title="Scales" subtitle="Daily verification before weighing. Unverified scales cannot be used unless the site allows it (scale.unverifiedPolicy)."
-        actions={<Can permission="scale:manage"><Button variant="outlined" startIcon={<AddIcon />} onClick={() => setCreating(true)}>Register scale</Button></Can>} />
-      <ErrorAlert error={q.error} />
+    <ListTemplate title="Scales" subtitle="Daily verification before weighing. Unverified scales cannot be used unless the site allows it (scale.unverifiedPolicy)."
+      error={q.error}
+      actions={<Can permission="scale:manage"><Button variant="outlined" startIcon={<AddIcon />} onClick={() => setCreating(true)}>Register scale</Button></Can>}>
       {unverified > 0 && <Alert severity="warning" sx={{ mb: 2 }}>{unverified} scale{unverified === 1 ? '' : 's'} need verification today.</Alert>}
       {q.isLoading && <Loading />}
-      {q.data?.length === 0 && <Typography color="text.secondary">No scales registered yet.</Typography>}
-      <Grid container spacing={2}>
-        {q.data?.map((s) => (
-          <Grid key={s.id} size={{ xs: 12, sm: 6, lg: 4 }}>
-            <Card variant="outlined" sx={{ borderColor: s.verification.verified ? 'success.main' : 'error.main', borderWidth: 2 }}>
-              <CardContent>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
-                  {s.verification.verified ? <CheckCircleIcon color="success" /> : <ErrorIcon color="error" />}
-                  <Typography variant="h6" sx={{ flexGrow: 1 }}>{s.code}</Typography>
-                  <StatusChip status={s.status} label={humanize(s.status)} />
+      {q.data?.length === 0 && <EmptyState title="No scales registered yet" message="Register each platform scale so it can be verified daily." />}
+      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' } }}>
+        {q.data?.map((s) => {
+          const check = scaleCheck(s);
+          return (
+            <Card key={s.id} component="article" aria-label={`Scale ${s.code}`} sx={{ borderTop: 4, borderTopColor: tone[check], display: 'flex', flexDirection: 'column' }}>
+              <CardContent sx={{ flexGrow: 1 }}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}>
+                  <Typography variant="h6" component="h2" sx={{ flexGrow: 1 }}>{s.code}</Typography>
+                  <StatusChip status={check} domain="scaleCheck" label={check === 'VERIFIED' ? 'Verified' : check === 'DUE' ? 'Check due' : 'Out of service'} />
                 </Stack>
-                <Typography color="text.secondary" gutterBottom>{s.name}{s.location ? ` · ${s.location}` : ''}</Typography>
-                <Stack direction="row" spacing={3}>
-                  <Field label="Capacity">{s.capacityKg} kg</Field>
-                  <Field label="Last check">{s.lastVerifiedAt ? `${s.lastResult} · ${formatDateTime(s.lastVerifiedAt)}` : 'Never'}</Field>
-                </Stack>
-                <Typography variant="body2" sx={{ mt: 1 }} color={s.verification.verified ? 'success.main' : 'error.main'}>
-                  {s.verification.verified ? `Verified until ${formatDateTime(s.verification.validUntil)}` : REASONS[s.verification.reason ?? ''] ?? 'Not verified'}
+                <Typography color="text.secondary" variant="body2" gutterBottom>{s.name}{s.location ? ` · ${s.location}` : ''}</Typography>
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mt: 1.5 }}>
+                  <Field label="Capacity"><WeightText value={s.capacityKg} dp={0} /></Field>
+                  <Field label="Last check">{s.lastVerifiedAt ? <><StatusChip status={s.lastResult ?? 'FAIL'} domain="checkResult" /> {formatDateTime(s.lastVerifiedAt)}</> : 'Never'}</Field>
+                </Box>
+                <Typography variant="body2" sx={{ mt: 1.5 }} color="text.secondary">
+                  {s.verification.verified ? `Valid until ${formatDateTime(s.verification.validUntil)}` : REASONS[s.verification.reason ?? ''] ?? 'Not verified'}
                 </Typography>
               </CardContent>
-              <CardActions>
-                <Can permission="scale:verify"><Button variant="contained" size="large" onClick={() => setVerifying(s)} disabled={s.status === 'DECOMMISSIONED'}>Verify now</Button></Can>
+              <CardActions sx={{ px: 2, pb: 2 }}>
+                <Can permission="scale:verify">
+                  <Button variant={check === 'VERIFIED' ? 'outlined' : 'contained'} size="large" onClick={() => setVerifying(s)} disabled={s.status === 'DECOMMISSIONED'}>Verify now</Button>
+                </Can>
                 <Button onClick={() => setHistory(s)}>History</Button>
               </CardActions>
             </Card>
-          </Grid>
-        ))}
-      </Grid>
+          );
+        })}
+      </Box>
       {verifying && <VerifyDialog scale={verifying} toleranceSet={tolerance.data !== null && tolerance.data !== undefined} onClose={() => setVerifying(null)} />}
       {history && <HistoryDialog scale={history} onClose={() => setHistory(null)} />}
       {creating && <NewScaleDialog onClose={() => setCreating(false)} />}
-    </>
+    </ListTemplate>
   );
 }

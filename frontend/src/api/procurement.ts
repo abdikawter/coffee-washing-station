@@ -186,10 +186,16 @@ export interface PurchaseSummary {
   todayVouchers: number;
   todayKg: string;
   todayAmount: string;
+  yesterdayKg: string;
+  yesterdayAmount: string;
+  paidTodayAmount: string;
+  paidTodayCount: number;
   draft: number;
   pendingVerification: number;
   verified: number;
   approved: number;
+  /** Last 14 days, oldest first. */
+  daily: { date: string; kg: string; amount: string; avgPricePerKg: string | null }[];
 }
 
 export type PaymentStatus = 'PENDING_APPROVAL' | 'APPROVED' | 'PAID' | 'REJECTED' | 'REVERSED';
@@ -241,7 +247,7 @@ export const filesApi = {
 };
 
 export const qualityApi = {
-  inspections: (q: { page: number; pageSize: number; supplierId?: string; decision?: string; available?: boolean }) =>
+  inspections: (q: { page: number; pageSize: number; sort?: string; supplierId?: string; decision?: string; available?: boolean }) =>
     http.get<Page<Inspection>>('/quality/inspections', { params: clean(q) }).then((r) => r.data),
   inspect: (body: { supplierId: string; redRipePct: string; greenUnripePct: string; overripeDamagedPct: string; decision: 'ACCEPTED' | 'REJECTED'; qualityGradeId?: string | null; rejectionReason?: string | null; notes?: string | null }) =>
     http.post<Data<Inspection>>('/quality/inspections', body).then((r) => r.data.data),
@@ -253,14 +259,15 @@ export const qualityApi = {
   updateGrade: (id: string, body: { isActive?: boolean; name?: string }) => http.patch<Data<Grade>>(`/quality/grades/${id}`, body).then((r) => r.data.data),
   coffeeTypes: () => http.get<Data<CoffeeType[]>>('/coffee-types').then((r) => r.data.data),
   createCoffeeType: (body: { code: string; name: string }) => http.post<Data<CoffeeType>>('/coffee-types', body).then((r) => r.data.data),
-  holds: (q: { page: number; pageSize: number; status?: string }) => http.get<Page<Hold>>('/quality/holds', { params: clean(q) }).then((r) => r.data),
+  holds: (q: { page: number; pageSize: number; sort?: string; status?: string }) => http.get<Page<Hold>>('/quality/holds', { params: clean(q) }).then((r) => r.data),
   placeHold: (lotNumber: string, reason: string) => http.post<Data<Hold>>('/quality/holds', { lotNumber, reason }).then((r) => r.data.data),
   releaseHold: (id: string, notes: string) => http.post<Data<Hold>>(`/quality/holds/${id}/release`, { notes }).then((r) => r.data.data),
 };
 
 export const equipmentApi = {
-  list: (q: { page: number; pageSize: number; type?: string; status?: string; search?: string }) =>
+  list: (q: { page: number; pageSize: number; sort?: string; type?: string; status?: string; search?: string }) =>
     http.get<Page<Equipment>>('/equipment', { params: clean(q) }).then((r) => r.data),
+  get: (id: string) => http.get<Data<Equipment>>(`/equipment/${id}`).then((r) => r.data.data),
   create: (body: { code: string; name: string; type: string; location?: string | null; serialNo?: string | null }) =>
     http.post<Data<Equipment>>('/equipment', body).then((r) => r.data.data),
   update: (id: string, body: { status?: EquipmentStatus; reason?: string; name?: string; location?: string | null }) =>
@@ -294,7 +301,7 @@ export const purchasesApi = {
 };
 
 export const paymentsApi = {
-  list: (q: { page: number; pageSize: number; status?: string; voucherId?: string }) => http.get<Page<Payment>>('/payments', { params: clean(q) }).then((r) => r.data),
+  list: (q: { page: number; pageSize: number; sort?: string; status?: string; voucherId?: string }) => http.get<Page<Payment>>('/payments', { params: clean(q) }).then((r) => r.data),
   create: (body: { voucherId: string; method: string; referenceNo?: string | null }, key: string) =>
     http.post<Data<Payment>>('/payments', body, idem(key)).then((r) => r.data.data),
   command: (id: string, cmd: PaymentCommand, key: string, reason?: string) =>
@@ -302,7 +309,7 @@ export const paymentsApi = {
 };
 
 export const cashApi = {
-  list: (q: { page: number; pageSize: number }) => http.get<Page<CashTransaction>>('/finance/cash', { params: q }).then((r) => r.data),
+  list: (q: { page: number; pageSize: number; sort?: string }) => http.get<Page<CashTransaction>>('/finance/cash', { params: clean(q) }).then((r) => r.data),
   summary: () => http.get<Data<{ balance: string; inToday: string; outToday: string }>>('/finance/cash/summary').then((r) => r.data.data),
   record: (body: { type: 'CASH_FUNDING' | 'CASH_RETURN'; amount: string; description: string }, key: string) =>
     http.post<Data<CashTransaction>>('/finance/cash', body, idem(key)).then((r) => r.data.data),
